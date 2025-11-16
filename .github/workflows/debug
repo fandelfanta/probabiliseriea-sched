@@ -1,0 +1,16 @@
+name: Debug Secrets
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Show base64 length
+        env:
+          TEST: ${{ secrets.GOOGLE_CREDENTIALS_B64 }}
+        run: |
+          echo "Lunghezza Base64:"
+          echo "${#TEST}"
