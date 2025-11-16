@@ -1,28 +1,7 @@
 name: Esecuzione Probabili Serie A
 
 on:
-  schedule:
-    # Lunedì–Mercoledì ogni ora
-    - cron: "0 5-22 * * 1"
-    - cron: "0 5-22 * * 2"
-    - cron: "0 5-22 * * 3"
-
-    # Giovedì ogni 30 minuti
-    - cron: "0 5-22 * * 4"
-    - cron: "30 5-22 * * 4"
-
-    # Venerdì ogni 10 minuti
-    - cron: "*/10 5-22 * * 5"
-
-    # Sabato ogni 10 minuti
-    - cron: "*/10 5-22 * * 6"
-
-    # Domenica ogni 30 minuti
-    - cron: "0 5-22 * * 0"
-    - cron: "30 5-22 * * 0"
-
   workflow_dispatch:
-
 
 jobs:
   run-script:
@@ -42,16 +21,19 @@ jobs:
           pip install -r requirements.txt
           playwright install --with-deps chromium
 
-      - name: Decode Google Credentials
-        run: |
-          echo "${GOOGLE_CREDENTIALS_B64}" | base64 --decode > credentials.json
+      - name: Decode Google Credentials (debug)
         env:
           GOOGLE_CREDENTIALS_B64: ${{ secrets.GOOGLE_CREDENTIALS_B64 }}
-      
-      - name: Check decoded file
         run: |
-          echo "Decoded file size:"
-          wc -c credentials.json | awk '{print $1}'
+          set -e
+          echo ">>> Base64 length:"
+          echo "${GOOGLE_CREDENTIALS_B64}" | wc -c
+          echo ">>> Decoding to credentials.json"
+          echo "${GOOGLE_CREDENTIALS_B64}" | base64 --decode > credentials.json
+          echo ">>> Decoded file size:"
+          wc -c credentials.json
+          echo ">>> First 5 lines of credentials.json:"
+          head -n 5 credentials.json || echo "(file vuoto o troppo corto)"
 
       - name: Run script
         env:
