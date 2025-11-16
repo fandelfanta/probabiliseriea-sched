@@ -29,7 +29,12 @@ jobs:
           playwright install --with-deps chromium
 
       - name: Setup Google Credentials
-        run: echo "${{ secrets.GOOGLE_CREDENTIALS }}" > credentials.json
+        run: |
+          printf "%s" "${GOOGLE_CREDENTIALS}" > credentials.json
+        shell: bash
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+
 
       - name: Run script
         env:
