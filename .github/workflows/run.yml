@@ -28,12 +28,12 @@ jobs:
           pip install -r requirements.txt
           playwright install --with-deps chromium
 
-      - name: Setup Google Credentials
+      - name: Decode Google Credentials
         run: |
-          printf "%s" "${GOOGLE_CREDENTIALS}" > credentials.json
-        shell: bash
+          echo "${GOOGLE_CREDENTIALS_B64}" | base64 --decode > credentials.json
         env:
-          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          GOOGLE_CREDENTIALS_B64: ${{ secrets.GOOGLE_CREDENTIALS_B64 }}
+
 
 
       - name: Run script
