@@ -1,12 +1,15 @@
-name: Esecuzione Probabili Serie A (SMOKE)
+name: Esecuzione Probabili Serie A (TEST)
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:   # abilita il pulsante "Run workflow"
 
 jobs:
   run-script:
     runs-on: ubuntu-latest
     steps:
+      - name: WORKFLOW MARKER v1
+        run: echo "Workflow file in uso: v1"
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -27,9 +30,9 @@ jobs:
           echo "Base64 length: ${#GOOGLE_CREDENTIALS_B64}"
           echo "${GOOGLE_CREDENTIALS_B64}" | base64 --decode > credentials.json
           echo "Decoded file size:" && wc -c credentials.json
-          head -n 3 credentials.json || true
+          echo "First lines:" && head -n 3 credentials.json || true
 
-      - name: Run smoke test
+      - name: Run script
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ github.workspace }}/credentials.json
-        run: python smoke.py
+        run: python probabili.py
