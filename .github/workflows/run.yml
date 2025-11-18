@@ -1,15 +1,29 @@
-name: Esecuzione Probabili Serie A (TEST)
+name: Esecuzione Probabili Serie A (prod)
 
 on:
-  workflow_dispatch:   # abilita il pulsante "Run workflow"
+  schedule:
+    # ATTENZIONE: GitHub Actions usa l'UTC per il cron.
+    # 05:00–23:00 italiane ≈ 04:00–22:00 UTC (CET). 
+    - cron: "0 4-22 * * 1-3"    # Lunedì-Mercoledì: ogni ora
+    - cron: "*/30 4-22 * * 4"   # Giovedì: ogni 30 minuti
+    - cron: "*/10 4-22 * * 5,6" # Venerdì-Sabato: ogni 10 minuti
+    - cron: "*/30 4-22 * * 0"   # Domenica: ogni 30 minuti
+  workflow_dispatch:
+
+# Evita esecuzioni sovrapposte
+concurrency:
+  group: probabili-prod
+  cancel-in-progress: false
+
+env:
+  TZ: Europe/Rome
 
 jobs:
-  run-script:
+  run:
     runs-on: ubuntu-latest
-    steps:
-      - name: WORKFLOW MARKER v1
-        run: echo "Workflow file in uso: v1"
+    timeout-minutes: 30
 
+    steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -20,19 +34,28 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt
-          playwright install --with-deps chromium
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+          # Playwright (se lo usi per gli screenshot)
+          playwright install --with-deps chromium || true
 
-      - name: Decode Google Credentials (Base64)
+      - name: Decode Google credentials
         env:
           GOOGLE_CREDENTIALS_B64: ${{ secrets.GOOGLE_CREDENTIALS_B64 }}
         run: |
-          echo "Base64 length: ${#GOOGLE_CREDENTIALS_B64}"
           echo "${GOOGLE_CREDENTIALS_B64}" | base64 --decode > credentials.json
-          echo "Decoded file size:" && wc -c credentials.json
-          echo "First lines:" && head -n 3 credentials.json || true
+          test -s credentials.json || { echo "credentials.json vuoto"; exit 1; }
+          echo "Credenziali decodificate."
 
-      - name: Run script
+      - name: Run production script
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ github.workspace }}/credentials.json
-        run: python probabili.py
+          # 👉 Metti la URL della cartella Drive in Repository Variables come DRIVE_FOLDER_URL
+          DRIVE_FOLDER: ${{ vars.DRIVE_FOLDER_URL }}
+          # Se il tuo script supporta queste flag, le leggiamo da env:
+          RUN_ALL_SOURCES: "1"
+          IMAGES_ONLY: "1"
+        run: |
+          echo "Esecuzione probabili.py"
+          python -u probabili.py
