@@ -64,15 +64,22 @@ def _drive_service():
     return build("drive", "v3", credentials=creds)
 
 
-def _find_by_name_in_folder(drive, folder_id: str, filename: str) -> Optional[str]:
-    query = (
-        "'" + folder_id + "' in parents and "
-        "name = '" + filename.replace("'", "\\'") + "' and "
+def _find_by_name_in_folder(drive, *, folder_id: str, filename: str):
+    """
+    Cerca un file con lo stesso nome nella cartella (My Drive o Shared Drive).
+    Ritorna l'ID se esiste, altrimenti None.
+    """
+    # Prepara il nome escapando gli apici SENZA usare backslash dentro l'espressione della f-string
+    safe_name = filename.replace("'", "\\'")
+
+    q = (
+        f"'{folder_id}' in parents and "
+        f"name = '{safe_name}' and "
         "trashed = false"
     )
     res = drive.files().list(
-        q=query,
-        fields="files(id,name)",
+        q=q,
+        fields="files(id, name)",
         includeItemsFromAllDrives=True,
         supportsAllDrives=True,
         spaces="drive",
@@ -80,9 +87,7 @@ def _find_by_name_in_folder(drive, folder_id: str, filename: str) -> Optional[st
         pageSize=10,
     ).execute()
     files = res.get("files", [])
-    if files:
-        return files[0].get("id")
-    return None
+    return files[0]["id"] if files else None
 
 
 def _upload_or_replace(drive, folder_id: str, file_path: str) -> None:
