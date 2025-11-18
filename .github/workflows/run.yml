@@ -1,28 +1,20 @@
-name: Esecuzione Probabili Serie A (prod)
+name: Esecuzione Probabili Serie A
 
 on:
   schedule:
-    # ATTENZIONE: GitHub Actions usa l'UTC per il cron.
-    # 05:00–23:00 italiane ≈ 04:00–22:00 UTC (CET). 
-    - cron: "0 4-22 * * 1-3"    # Lunedì-Mercoledì: ogni ora
-    - cron: "*/30 4-22 * * 4"   # Giovedì: ogni 30 minuti
-    - cron: "*/10 4-22 * * 5,6" # Venerdì-Sabato: ogni 10 minuti
-    - cron: "*/30 4-22 * * 0"   # Domenica: ogni 30 minuti
+    # Lunedì–Mercoledì ogni ora
+    - cron: "0 5-22 * * 1-3"
+    # Giovedì ogni 30 minuti
+    - cron: "*/30 5-22 * * 4"
+    # Venerdì–Sabato ogni 10 minuti
+    - cron: "*/10 5-22 * * 5,6"
+    # Domenica ogni 30 minuti
+    - cron: "*/30 5-22 * * 0"
   workflow_dispatch:
 
-# Evita esecuzioni sovrapposte
-concurrency:
-  group: probabili-prod
-  cancel-in-progress: false
-
-env:
-  TZ: Europe/Rome
-
 jobs:
-  run:
+  run-script:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -34,28 +26,33 @@ jobs:
 
       - name: Install dependencies
         run: |
-          if [ -f requirements.txt ]; then
-            pip install -r requirements.txt
-          fi
-          # Playwright (se lo usi per gli screenshot)
-          playwright install --with-deps chromium || true
+          pip install -r requirements.txt
+          playwright install --with-deps chromium
 
-      - name: Decode Google credentials
+      # --- decodifica del secret con le credenziali GCP ---
+      - name: Decode Google Credentials (base64 -> credentials.json)
         env:
           GOOGLE_CREDENTIALS_B64: ${{ secrets.GOOGLE_CREDENTIALS_B64 }}
         run: |
-          echo "${GOOGLE_CREDENTIALS_B64}" | base64 --decode > credentials.json
-          test -s credentials.json || { echo "credentials.json vuoto"; exit 1; }
-          echo "Credenziali decodificate."
+          echo "$GOOGLE_CREDENTIALS_B64" | base64 -d > credentials.json
+          python - <<'PY'
+          import json, sys
+          try:
+              info = json.load(open("credentials.json"))
+              print("Credenziali decodificate. tipo:", info.get("type"))
+          except Exception as e:
+              print("ERRORE decodifica credenziali:", e, file=sys.stderr); sys.exit(1)
+          PY
 
+      # --- esecuzione del tuo script ---
       - name: Run production script
         env:
+          # passiamo esplicitamente la variabile che lo script legge
+          DRIVE_FOLDER_URL: ${{ secrets.DRIVE_FOLDER_URL }}
+          # opzionale: pattern dei file da caricare (se lo usi nello script)
+          IMAGE_GLOB: "output/**/*.png"
+          # credenziale per le librerie Google
           GOOGLE_APPLICATION_CREDENTIALS: ${{ github.workspace }}/credentials.json
-          # 👉 Metti la URL della cartella Drive in Repository Variables come DRIVE_FOLDER_URL
-          DRIVE_FOLDER: ${{ vars.DRIVE_FOLDER_URL }}
-          # Se il tuo script supporta queste flag, le leggiamo da env:
-          RUN_ALL_SOURCES: "1"
-          IMAGES_ONLY: "1"
         run: |
           echo "Esecuzione probabili.py"
-          python -u probabili.py
+          python probabili.py
