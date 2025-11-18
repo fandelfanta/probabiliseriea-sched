@@ -1,4 +1,4 @@
-import os, sys
+import os, re, sys
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -9,11 +9,28 @@ def die(msg: str):
     print(f"❌ {msg}")
     sys.exit(1)
 
+def extract_id_from_input(raw: str) -> str:
+    raw = (raw or "").strip()
+    if not raw:
+        return ""
+    # Se è una URL Google Drive stile .../folders/<ID>
+    m = re.search(r"/folders/([A-Za-z0-9_-]+)", raw)
+    if m:
+        return m.group(1)
+    # Altrimenti assumiamo sia già un ID
+    return raw
+
 def main():
-    folder_id = os.getenv("DRIVE_FOLDER_ID", "").strip()
+    raw = os.getenv("DRIVE_FOLDER", "").strip()
+    if not raw:
+        die("DRIVE_FOLDER non impostato (metti la URL completa o l'ID).")
+
+    folder_id = extract_id_from_input(raw)
+    print("🔎 DRIVE_FOLDER input :", raw)
+    print("🔎 ID estratto         :", folder_id)
+
     if not folder_id:
-        die("DRIVE_FOLDER_ID non impostato nell'ambiente.")
-    print("🔎 DRIVE_FOLDER_ID usato:", folder_id)
+        die("Impossibile estrarre un ID valido da DRIVE_FOLDER.")
 
     creds = service_account.Credentials.from_service_account_file(
         "credentials.json", scopes=SCOPES
@@ -31,6 +48,7 @@ def main():
     except HttpError as e:
         die(f"Errore nell'accesso all'ID fornito: {e}")
 
+    # Se è una scorciatoia, risolviamo il target
     if meta.get("mimeType") == "application/vnd.google-apps.shortcut":
         target = meta["shortcutDetails"]["targetId"]
         print("↪️  L'ID è una scorciatoia. targetId:", target)
