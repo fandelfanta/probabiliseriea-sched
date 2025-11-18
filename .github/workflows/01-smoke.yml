@@ -7,6 +7,7 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -31,13 +32,13 @@ jobs:
 
       - name: Mostra anteprima smoke.py (debug)
         run: |
-          echo "---- smoke.py (prime 60 righe) ----"
-          sed -n '1,60p' smoke.py || true
+          echo "---- smoke.py (prime 80 righe) ----"
+          sed -n '1,80p' smoke.py || true
           echo "-----------------------------------"
 
       - name: Run smoke.py
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ github.workspace }}/credentials.json
-          # ⬇️ ID *esatto* copiato dalla URL della cartella /folders/<ID>
+          # ID della cartella Drive (copiato dalla URL /folders/<ID>)
           DRIVE_FOLDER_ID: "1Oy6nEebc7hE0OOyD3DKnqb3PaGSLk2eO"
         run: python smoke.py
