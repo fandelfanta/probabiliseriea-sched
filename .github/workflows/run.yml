@@ -1,16 +1,16 @@
 name: Esecuzione Probabili Serie A
 
 on:
-  # Schedulazione (orari italiani 06:00–23:59 ≈ UTC 05–22)
-  schedule:
-    - cron: "0 5-22 * * 1-3"   # Lun–Mer ogni ora
-    - cron: "*/30 5-22 * * 4"  # Gio ogni 30 minuti
-    - cron: "*/10 5-22 * * 5,6" # Ven–Sab ogni 10 minuti
-    - cron: "*/30 5-22 * * 0"  # Dom ogni 30 minuti
-  workflow_dispatch: {}        # Avvio manuale
+  workflow_dispatch:
+  # Se vuoi anche una schedulazione, togli il commento qui sotto e imposta il cron
+  # schedule:
+  #   - cron: "0 5-22 * * 1-3"   # Lunedì-Mercoledì ogni ora (06–23 italiane ≈ 05–22 UTC in inverno)
+  #   - cron: "0,30 5-22 * * 4"  # Giovedì ogni 30 minuti
+  #   - cron: "*/10 5-22 * * 5,6" # Venerdì-Sabato ogni 10 minuti
+  #   - cron: "0,30 5-22 * * 0"   # Domenica ogni 30 minuti
 
 jobs:
-  run-script:
+  prod:
     runs-on: ubuntu-latest
 
     steps:
@@ -24,40 +24,51 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt
-          # Se ti serve Playwright per generare gli screenshot, lascialo:
-          playwright install --with-deps chromium || true
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+          # Se usi Playwright per lo scraping, tieni queste righe:
+          if command -v playwright >/dev/null 2>&1; then
+            playwright install --with-deps chromium || true
+          fi
 
-      - name: Decode Google credentials (Base64 -> credentials.json)
+      # === Decodifica credenziali Google da secret base64 ===
+      - name: Decode Google credentials (Base64) -> credentials.json
         env:
           GOOGLE_CREDENTIALS_B64: ${{ secrets.GOOGLE_CREDENTIALS_B64 }}
         run: |
-          test -n "$GOOGLE_CREDENTIALS_B64" || { echo "❌ Manca il secret GOOGLE_CREDENTIALS_B64"; exit 1; }
-          echo "$GOOGLE_CREDENTIALS_B64" | base64 --decode > credentials.json
+          if [ -z "${GOOGLE_CREDENTIALS_B64}" ]; then
+            echo "❌ Secret GOOGLE_CREDENTIALS_B64 mancante."
+            exit 1
+          fi
+          echo "${GOOGLE_CREDENTIALS_B64}" | base64 -d > credentials.json
           echo "Credenziali decodificate."
-          wc -c credentials.json | awk '{print "credentials.json size:", $1, "bytes"}'
+          echo "Bytes in credentials.json: $(wc -c < credentials.json)"
 
-      # (Facoltativo) Crea una PNG finta per testare l'upload. Commenta se non serve.
-      # - name: Sanity: crea una immagine finta
-      #   run: |
-      #     python - <<'PY'
-      #     import os
-      #     os.makedirs('output', exist_ok=True)
-      #     from PIL import Image
-      #     Image.new('RGB', (400, 160), (255,255,255)).save('output/dummy.png')
-      #     print("Creato output/dummy.png")
-      #     PY
-
-      - name: Elenco PNG presenti (debug)
+      # === Debug: mostra il sorgente numerato e compila prima di eseguire ===
+      - name: (Debug) mostra probabili.py numerato
         run: |
-          echo "PNG trovate nel workspace:"
-          find . -type f -iname "*.png" -print || true
+          echo "=== probabili.py (prime 200 righe) ==="
+          nl -ba probabili.py | sed -n '1,200p'
 
+      - name: (Debug) compila probabili.py (blocca errori di sintassi)
+        run: |
+          python - << 'PY'
+          import py_compile
+          py_compile.compile('probabili.py', doraise=True)
+          print('Compilazione OK.')
+          PY
+
+      # === Esecuzione ===
       - name: Run production script
         env:
-          DRIVE_FOLDER_URL: ${{ secrets.DRIVE_FOLDER_URL }}              # URL o ID della cartella Drive
           GOOGLE_APPLICATION_CREDENTIALS: ${{ github.workspace }}/credentials.json
-          IMAGE_GLOB: "output/**/*.png"                                   # Pattern dei PNG da caricare
+          # Secret/variable con URL o ID della cartella Drive di destinazione
+          DRIVE_FOLDER_URL: ${{ secrets.DRIVE_FOLDER_URL }}
+          # Glob per cercare le PNG da caricare (puoi cambiarlo)
+          IMAGE_GLOB: "**/*.png"
         run: |
           echo "Esecuzione probabili.py"
+          echo "DRIVE_FOLDER_URL (mascherato se secret): ${DRIVE_FOLDER_URL:+***}"
+          echo "IMAGE_GLOB: ${IMAGE_GLOB}"
           python probabili.py
