@@ -20,17 +20,14 @@ def _resolve_folder_id(url_or_id: str) -> str:
         return ""
     s = url_or_id.strip()
 
-    # Se è un URL di tipo /folders/<ID>
     m = re.search(r"/folders/([A-Za-z0-9_-]+)", s)
     if m:
         return m.group(1)
 
-    # Se è un URL con open?id=<ID>
     m = re.search(r"[?&]id=([A-Za-z0-9_-]+)", s)
     if m:
         return m.group(1)
 
-    # Altrimenti assumiamo sia già un ID
     return s
 
 
@@ -56,12 +53,13 @@ def get_drive_service():
 
 def _find_by_name_in_folder(drive, folder_id: str, filename: str) -> str | None:
     """Cerca un file con lo stesso nome nella cartella target. Ritorna l'ID se esiste."""
-    from googleapiclient.discovery import Resource  # type: ignore
-    assert isinstance(drive, Resource)
+    # ⚠️ NIENTE backslash nelle f-string: preparo il nome escapato PRIMA
+    escaped = filename.replace("'", "\\'")
     q = (
-        f"'{folder_id}' in parents and name = '{filename.replace(\"'\", \"\\'\")}' "
-        f"and trashed = false"
+        "'{folder}' in parents and name = '{name}' and trashed = false"
+        .format(folder=folder_id, name=escaped)
     )
+
     res = drive.files().list(
         q=q,
         fields="files(id,name)",
@@ -103,11 +101,11 @@ def upload_or_replace(drive, folder_id: str, file_path: str):
 
 
 def main():
-    # 1) Legge dove prendere i PNG (pattern)
+    # Pattern dei PNG da caricare (impostato dal workflow)
     image_glob = os.environ.get("IMAGE_GLOB", "output/**/*.png").strip()
     print(f"🔎 IMAGE_GLOB: {image_glob}")
 
-    # 2) Legge URL/ID della cartella Drive dai secrets/vars
+    # URL/ID della cartella Drive (secret DRIVE_FOLDER_URL)
     drive_folder_raw = os.environ.get("DRIVE_FOLDER_URL", "").strip()
     print(f"User DRIVE_FOLDER: '{'*'*len(drive_folder_raw) if drive_folder_raw else ''}'")
     folder_id = _resolve_folder_id(drive_folder_raw)
@@ -116,13 +114,13 @@ def main():
         print("❌ DRIVE_FOLDER_URL/ID mancante. Imposta il secret/variabile 'DRIVE_FOLDER_URL'.")
         raise SystemExit(1)
 
-    # 3) Scansiona i file locali
+    # File locali da caricare
     files = sorted(glob.glob(image_glob, recursive=True))
     if not files:
         print("⚠️  Nessun file immagine trovato. Imposta IMAGE_GLOB o verifica i percorsi.")
-        return  # non fallisco il job
+        return
 
-    # 4) Verifica cartella e prepara Drive
+    # Verifica cartella e upload
     drive = get_drive_service()
     try:
         meta = drive.files().get(
@@ -138,7 +136,6 @@ def main():
         print(f"❌ Errore sul target della cartella: {e}")
         return
 
-    # 5) Upload (o update se esiste già lo stesso filename)
     for p in files:
         if not os.path.isfile(p):
             print(f"⚠️  Salto (non esiste): {p}")
