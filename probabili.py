@@ -70,10 +70,20 @@ def get_drive_service():
 
 
 def _find_by_name_in_folder(drive, *, folder_id: str, filename: str):
+    """
+    Cerca un file con lo stesso nome nella cartella (My Drive o Shared Drive).
+    Ritorna l'ID se esiste, altrimenti None.
+    """
+    # Escapa gli apici nel nome file PRIMA di costruire l'f-string,
+    # così l'espressione {safe_name} è semplice (niente backslash nell'espressione).
+    safe_name = filename.replace("'", "\\'")
+
     q = (
         f"'{folder_id}' in parents and "
-        f"name = '{filename.replace(\"'\", \"\\'\")}' and trashed = false"
+        f"name = '{safe_name}' and "
+        f"trashed = false"
     )
+
     res = drive.files().list(
         q=q,
         fields="files(id, name)",
