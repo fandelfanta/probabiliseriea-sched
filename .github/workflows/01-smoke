@@ -1,0 +1,34 @@
+name: SMOKE - Google creds check
+
+on:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install minimal deps
+        run: |
+          pip install google-auth google-auth-httplib2 google-api-python-client gspread
+
+      - name: Decode Google Credentials (Base64) + debug
+        env:
+          GOOGLE_CREDENTIALS_B64: ${{ secrets.GOOGLE_CREDENTIALS_B64 }}
+        run: |
+          echo "Base64 length: ${#GOOGLE_CREDENTIALS_B64}"
+          echo "${GOOGLE_CREDENTIALS_B64}" | base64 --decode > credentials.json
+          echo "Decoded file size: $(wc -c < credentials.json)"
+          head -n 3 credentials.json || true
+
+      - name: Run smoke.py
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ github.workspace }}/credentials.json
+        run: python smoke.py
