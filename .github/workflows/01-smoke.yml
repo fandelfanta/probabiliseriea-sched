@@ -39,6 +39,6 @@ jobs:
       - name: Run smoke.py
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ github.workspace }}/credentials.json
-          # ID della cartella Drive (copiato dalla URL /folders/<ID>)
-          DRIVE_FOLDER_ID: "1Oy6nEebc7hE0OOyD3DKnqb3PaGSLk2eO"
+          # ⬇️ Incolla la URL completa della cartella Drive (dal browser)
+          DRIVE_FOLDER: "https://drive.google.com/drive/folders/1Oy6nEebc7hE0OOyD3DKnqb3PaGSLk2eO"
         run: python smoke.py
