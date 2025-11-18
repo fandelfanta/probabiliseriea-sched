@@ -1,17 +1,36 @@
 # smoke.py
-from google.auth import default
+from google.oauth2 import service_account
 from googleapiclient.discovery import build
+import gspread
+import json
 
-SCOPES = ["https://www.googleapis.com/auth/drive","https://www.googleapis.com/auth/spreadsheets"]
+SHEET_ID = "1l8v3uDyzk1A9sMUwoV2L_rhOns-vJRV7iOTRfLK4ZvU"
+DRIVE_FOLDER_ID = "1Oy6nEebc7hE0OOyD3DKnqb3PaGSLk2eO"
+SCOPES = [
+    "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/spreadsheets",
+]
 
 def main():
-    creds, _ = default(scopes=SCOPES)
-    # Stampa identità account e lista 1 file su Drive (per verificare accesso)
-    iam = build("iam", "v1", credentials=creds)
-    # Se non hai permessi IAM, saltiamo e usiamo Drive come check
+    # Legge il file scritto dal workflow (credentials.json)
+    creds = service_account.Credentials.from_service_account_file(
+        "credentials.json", scopes=SCOPES
+    )
+    print("🔑 Service Account:", creds.service_account_email)
+
+    # Verifica accesso allo Sheet
+    gc = gspread.authorize(creds)
+    sh = gc.open_by_key(SHEET_ID)
+    print("📄 Sheets OK. Titolo:", sh.title)
+
+    # Verifica accesso alla cartella Drive
     drive = build("drive", "v3", credentials=creds)
-    files = drive.files().list(pageSize=1, fields="files(id,name)").execute().get("files", [])
-    print("Drive OK; esempio file visibile:", files[0] if files else "nessun file visibile")
+    folder = drive.files().get(
+        fileId=DRIVE_FOLDER_ID,
+        fields="id, name, mimeType, parents",
+        supportsAllDrives=True
+    ).execute()
+    print("📁 Drive OK. Cartella:", folder["name"])
 
 if __name__ == "__main__":
     main()
