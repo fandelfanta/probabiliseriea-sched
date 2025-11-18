@@ -1,11 +1,11 @@
-# probabili.py  — versione senza f-string
-from __future__ import annotations
+# probabili.py (versione senza f-strings)
 
-import glob
-import mimetypes
+from __future__ import annotations
 import os
 import re
-from typing import List, Optional
+import glob
+import mimetypes
+from typing import List
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -13,9 +13,17 @@ from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload
 
 
-# ------------------------------------------
-# Utility
-# ------------------------------------------
+# ====== CONFIG ======
+SCOPES = ["https://www.googleapis.com/auth/drive"]
+
+# Se passi un URL di cartella come secret/var ENV DRIVE_FOLDER_URL,
+# estraggo l'ID; altrimenti puoi impostare direttamente un ID qui.
+DRIVE_FOLDER_FALLBACK_ID = ""   # opzionale (es. "1Oy6nEebc7hE0OOyD3DKnqb3PaGSLk2eO")
+
+# Glob dei file immagine da caricare (puoi sovrascriverlo con ENV IMAGE_GLOB)
+DEFAULT_IMAGE_GLOB = "**/*.png"
+# =====================
+
 
 def _mime_for(path: str) -> str:
     mime, _ = mimetypes.guess_type(path)
@@ -30,53 +38,45 @@ def _mime_for(path: str) -> str:
 
 
 def _ensure_paths_exist(paths: List[str]) -> List[str]:
-    ok = []
-    missing = []
-    for p in paths:
-        if os.path.isfile(p):
-            ok.append(p)
-        else:
-            missing.append(p)
+    present = [p for p in paths if os.path.isfile(p)]
+    missing = [p for p in paths if p not in present]
     if missing:
         print("⚠️  Mancano questi file locali, li salto:", missing)
-    return ok
+    return present
 
 
-def _resolve_folder_id(url_or_id: str) -> Optional[str]:
-    """Accetta URL di cartella Drive o ID già pulito e restituisce l'ID."""
-    if not url_or_id:
-        return None
-    m = re.search(r"/folders/([A-Za-z0-9_-]+)", url_or_id)
-    if m:
-        return m.group(1)
-    # se è un id puro, lo accettiamo
-    if re.fullmatch(r"[A-Za-z0-9_-]{10,}", url_or_id):
-        return url_or_id
-    return None
+def _resolve_drive_folder_id() -> str:
+    """Ricava l'ID cartella da ENV DRIVE_FOLDER_URL (URL o ID)."""
+    env_val = os.getenv("DRIVE_FOLDER_URL", "").strip()
+    if env_val:
+        # se è già un ID (nessun slash), usalo
+        if "/" not in env_val:
+            return env_val
+        # altrimenti prova ad estrarre l'ID dall'URL
+        m = re.search(r"/folders/([A-Za-z0-9_\-]+)", env_val)
+        if m:
+            return m.group(1)
+
+    return DRIVE_FOLDER_FALLBACK_ID.strip()
 
 
-def _drive_service():
-    # Il workflow setta GOOGLE_APPLICATION_CREDENTIALS -> credentials.json
-    cred_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "credentials.json")
-    scopes = ["https://www.googleapis.com/auth/drive"]
-    creds = service_account.Credentials.from_service_account_file(cred_path, scopes=scopes)
+def get_drive_service():
+    creds = service_account.Credentials.from_service_account_file(
+        "credentials.json", scopes=SCOPES
+    )
     print("🔑 Service Account:", getattr(creds, "service_account_email", "n/a"))
     return build("drive", "v3", credentials=creds)
 
 
 def _find_by_name_in_folder(drive, *, folder_id: str, filename: str):
-    """
-    Cerca un file con lo stesso nome nella cartella (My Drive o Shared Drive).
-    Ritorna l'ID se esiste, altrimenti None.
-    """
-    # Prepara il nome escapando gli apici SENZA usare backslash dentro l'espressione della f-string
+    """Cerca (per nome) un file nella cartella. Ritorna l'ID se esiste, altrimenti None."""
+    # Escape dell'apice: NIENTE backslash dentro espressioni di f-string (qui non usiamo f-string)
     safe_name = filename.replace("'", "\\'")
-
     q = (
-        f"'{folder_id}' in parents and "
-        f"name = '{safe_name}' and "
-        "trashed = false"
+        "'{folder}' in parents and name = '{name}' and trashed = false"
+        .format(folder=folder_id, name=safe_name)
     )
+
     res = drive.files().list(
         q=q,
         fields="files(id, name)",
@@ -86,83 +86,82 @@ def _find_by_name_in_folder(drive, *, folder_id: str, filename: str):
         corpora="allDrives",
         pageSize=10,
     ).execute()
+
     files = res.get("files", [])
     return files[0]["id"] if files else None
 
 
-def _upload_or_replace(drive, folder_id: str, file_path: str) -> None:
+def upload_or_replace(drive, *, folder_id: str, file_path: str):
+    """Carica un file in Drive; se esiste già con lo stesso nome lo sostituisce (update)."""
     filename = os.path.basename(file_path)
     mime = _mime_for(file_path)
     media = MediaFileUpload(file_path, mimetype=mime, resumable=True)
 
-    existing_id = _find_by_name_in_folder(drive, folder_id, filename)
-    meta = {"name": filename, "parents": [folder_id]}
+    existing_id = _find_by_name_in_folder(drive, folder_id=folder_id, filename=filename)
+
+    file_metadata = {"name": filename, "parents": [folder_id]}
 
     try:
         if existing_id:
             updated = drive.files().update(
                 fileId=existing_id,
                 media_body=media,
-                fields="id,name,size,modifiedTime",
+                fields="id, name, size, modifiedTime",
                 supportsAllDrives=True,
             ).execute()
-            print("♻️  Aggiornato:", updated.get("name"), "(id:", updated.get("id"), ")")
+            print("♻️  Aggiornato: {n} (id: {i})".format(n=updated["name"], i=updated["id"]))
         else:
             created = drive.files().create(
-                body=meta,
+                body=file_metadata,
                 media_body=media,
-                fields="id,name,size,createdTime",
+                fields="id, name, size, createdTime",
                 supportsAllDrives=True,
             ).execute()
-            print("⬆️  Caricato:", created.get("name"), "(id:", created.get("id"), ")")
+            print("⬆️  Caricato:  {n} (id: {i})".format(n=created["name"], i=created["id"]))
     except HttpError as e:
-        print("❌ Errore Drive su", filename, ":", str(e))
+        print("❌ Errore Drive su {fn}: {err}".format(fn=filename, err=e))
 
 
-# ------------------------------------------
-# Main
-# ------------------------------------------
-
-def main() -> int:
-    # 1) Cartella di destinazione da secret/variabile (URL o ID)
-    user_folder = os.environ.get("DRIVE_FOLDER_URL", "").strip()
-    print("User DRIVE_FOLDER:", "***" if user_folder else "''")
-    folder_id = _resolve_folder_id(user_folder)
+def main():
+    # 1) Ricavo ID cartella
+    folder_id = _resolve_drive_folder_id()
+    print("User DRIVE_FOLDER:", "***" if folder_id else "''")
     print("→ ID risolto:", folder_id if folder_id else "(vuoto)")
     if not folder_id:
         print("❌ DRIVE_FOLDER_URL/ID mancante. Imposta il secret/variabile 'DRIVE_FOLDER_URL'.")
-        return 1
+        raise SystemExit(1)
 
-    # 2) Glob immagini (puoi cambiarlo dal workflow con IMAGE_GLOB)
-    image_glob = os.environ.get("IMAGE_GLOB", "**/*.png")
-    candidates = glob.glob(image_glob, recursive=True)
-    paths = _ensure_paths_exist(candidates)
-    if not paths:
+    # 2) Immagini locali
+    image_glob = os.getenv("IMAGE_GLOB", DEFAULT_IMAGE_GLOB)
+    all_paths = sorted(glob.glob(image_glob, recursive=True))
+    all_paths = [p for p in all_paths if os.path.isfile(p)]
+    print("PNG trovate nel workspace:", len(all_paths))
+    if not all_paths:
         print("⚠️  Nessun file immagine trovato. Imposta IMAGE_GLOB o verifica i percorsi.")
-        return 0
+        return
 
-    # 3) Service e verifica cartella
-    drive = _drive_service()
+    paths = _ensure_paths_exist(all_paths)
+
+    # 3) Verifica cartella
+    drive = get_drive_service()
     try:
-        meta = drive.files().get(
+        folder = drive.files().get(
             fileId=folder_id,
-            fields="id,name,mimeType",
+            fields="id, name, mimeType",
             supportsAllDrives=True,
         ).execute()
-        if meta.get("mimeType") != "application/vnd.google-apps.folder":
+        if folder.get("mimeType") != "application/vnd.google-apps.folder":
             print("❌ L'ID indicato non è una cartella Drive.")
-            return 1
-        print("📁 Drive OK. Cartella:", meta.get("name"))
+            return
+        print("📁 Drive OK. Cartella:", folder["name"])
     except HttpError as e:
-        print("❌ Errore sul target della cartella:", str(e))
-        return 1
+        print("❌ Cartella non raggiungibile:", str(e))
+        return
 
-    # 4) Upload
+    # 4) Upload/replace
     for p in paths:
-        _upload_or_replace(drive, folder_id, p)
-
-    return 0
+        upload_or_replace(drive, folder_id=folder_id, file_path=p)
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()
