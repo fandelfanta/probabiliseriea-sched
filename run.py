@@ -271,13 +271,13 @@ async def estrai_screenshots_fantacalcio():
             headless=True, 
             args=["--no-sandbox", "--disable-dev-shm-usage", "--headless=new"]
         )
-        # Timeout rimosso da new_context per evitare TypeError
+        # Timeout rimosso da new_context: SOLO viewport.
         context = await browser.new_context(
             viewport={"width":1600,"height":6000}
         )
         page = await context.new_page()
         
-        # 🎯 FIX Playwright: Imposta il timeout predefinito a 60 secondi
+        # 🎯 FIX Playwright: Imposta il timeout predefinito a 60 secondi per tutte le operazioni
         page.set_default_timeout(60000)
 
         # FIX: INTERCETTAZIONE DI RETE (Blocca risorse per liberare CPU)
@@ -285,13 +285,14 @@ async def estrai_screenshots_fantacalcio():
             route.request.resource_type in BLOCKED_RESOURCES and route.request.resource_type != "document"
         ) or any(blocked in route.request.url for blocked in BLOCKED_URLS) else route.continue_())
         
-        # Uso il timeout esplicito per la navigazione
-        await page.goto(URL, wait_until="domcontentloaded", timeout=60000) 
+        # Navigazione: senza timeout esplicito, usa il default (60s)
+        await page.goto(URL, wait_until="domcontentloaded") 
 
         # Gestione cookie/privacy
         for sel in ["button:has-text('Accetta')", "button:has-text('Accetta e continua')", "text='CONFIRM'", "button:has-text('Confirm')"]:
             try:
-                await page.locator(sel).first.click(timeout=3000, force=True)
+                # Timeout esplicito per click è ok
+                await page.locator(sel).first.click(timeout=3000, force=True) 
                 await page.wait_for_timeout(600)
                 break
             except: pass
@@ -323,7 +324,7 @@ async def estrai_screenshots_fantacalcio():
             }
         """)
         
-        # ATTESA CRITICA: Ora usa il timeout predefinito di 60s
+        # ATTESA CRITICA: Usa il timeout predefinito di 60s
         try:
              await page.wait_for_selector('li.match.match-item') 
              print("✅ Contenuto Fantacalcio caricato dopo attesa globale.")
@@ -339,7 +340,7 @@ async def estrai_screenshots_fantacalcio():
             match_txt = f"Match {idx}"
             
             try:
-                # Scroll: Ora usa il timeout predefinito di 60s
+                # Scroll: Usa il timeout predefinito di 60s
                 await match_box.scroll_into_view_if_needed() 
                 
                 # Nomi squadre per il log
@@ -352,7 +353,6 @@ async def estrai_screenshots_fantacalcio():
                     match_txt = f"{home} - {away}"
 
                 # CATTURA MIRATA: sul div che contiene le due colonne (Formazione + Note)
-                # target_container ora ha un timeout implicito di 60s
                 target_container = await match_box.query_selector("div.match-container-info")
                 
                 if not target_container:
