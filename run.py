@@ -240,29 +240,33 @@ async def estrai_screenshots_sosfanta():
         await context.close()
         await browser.close()
     
-## ==========================================================
-#  FONTE 2: Fantacalcio
+# ==========================================================
+#  FONTE 2: Fantacalcio (SCREENSHOT PERFETTO)
 # ==========================================================
 async def estrai_screenshots_fantacalcio():
     FONTE = "Fantacalcio"
     URL = "https://www.fantacalcio.it/probabili-formazioni-serie-a"
+    rows = []
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(
-            headless=True, 
+            headless=True,
             args=["--no-sandbox", "--disable-dev-shm-usage", "--headless=new"]
         )
         context = await browser.new_context(viewport={"width":1600,"height":4000})
         page = await context.new_page()
         await page.goto(URL, wait_until="domcontentloaded", timeout=60000)
 
-        # cookie/privacy
-        for sel in ["button:has-text('Accetta')", "button:has-text('Accetta e continua')", "text='CONFIRM'", "button:has-text('Confirm')"]:
+        # Cookie
+        for sel in ["button:has-text('Accetta')", "button:has-text('Accetta e continua')"]:
             try:
                 await page.locator(sel).first.click(timeout=2500, force=True)
                 await page.wait_for_timeout(600)
                 break
-            except: pass
+            except:
+                pass
+
+        # Rimuove popup
         await page.evaluate("""
             () => {
                 document.documentElement.style.overflow='auto';
@@ -278,7 +282,8 @@ async def estrai_screenshots_fantacalcio():
             try:
                 await match.scroll_into_view_if_needed()
                 await page.wait_for_timeout(700)
-                
+
+                # Testo squadra
                 team_names = await match.query_selector_all("h3.h6.team-name")
                 if len(team_names) >= 2:
                     home = (await team_names[0].inner_text()).strip()[:3].upper()
@@ -289,17 +294,31 @@ async def estrai_screenshots_fantacalcio():
                 else:
                     match_txt = f"Match {idx}"
 
-                filename = f"fantacalcio_{idx}.png"
-                path = f"{filename}"
+                # 🎯 CONTENITORE GIUSTO DA CATTURARE
+                target = await match.query_selector("div.match-container-info")
+                if not target:
+                    target = await match.query_selector("div.match-container")
+                if not target:
+                    print(f"⚠️ Nessun contenitore formazioni per {match_txt}.")
+                    continue
 
-                await match.screenshot(path=path)
-                link = drive_upload_or_replace(path, filename)
-                print(f"✅ Fantacalcio | {match_txt} → {filename} (Salvato su Drive) → {link}") # Log unificato
+                filename = f"fantacalcio_{idx}.png"
+
+                # Screenshot del contenitore interno
+                await target.screenshot(path=filename)
+
+                # Upload
+                link = drive_upload_or_replace(filename, filename)
+                print(f"✅ Fantacalcio | {match_txt} → {filename} → {link}")
+
+                # Rimuovi file locale
+                os.remove(filename)
 
             except Exception as e:
                 print(f"⚠️ Errore su match {idx}: {e}")
 
-        await context.close(); await browser.close()
+        await context.close()
+        await browser.close()
 
     # Aggiornamento Foglio
     if rows:
