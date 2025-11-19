@@ -87,50 +87,56 @@ async def estrai_sosfanta(drive, folder_id):
     URL = "https://www.sosfanta.com/lista-formazioni/probabili-formazioni-serie-a/"
 
     async with async_playwright() as p:
-        # IMPORTANTISSIMO: SosFanta NON funziona in headless
+
+        # CHROME HEADLESS MODE (identico a Colab)
         browser = await p.chromium.launch(
-            headless=False,
+            headless=True,
             args=[
-                "--disable-gpu",
-                "--disable-dev-shm-usage",
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
                 "--disable-web-security",
-                "--disable-features=IsolateOrigins,site-per-process"
+                "--disable-features=IsolateOrigins,site-per-process",
+                "--window-size=1366,768",
+                "--use-gl=swiftshader",            # <<< GPU software come in Colab
+                "--enable-webgl",                  # <<< WebGL attivo come Colab
+                "--ignore-gpu-blacklist",
+                "--disable-background-timer-throttling",
+                "--disable-renderer-backgrounding",
+                "--disable-backgrounding-occluded-windows",
+                "--disable-features=site-per-process"
             ]
         )
 
         page = await browser.new_page(
             viewport={"width": 1366, "height": 768},
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119 Safari/537.36"
+            user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119 Safari/537.36"
         )
 
-        # Nav identical to Colab Chrome
         await page.goto(URL, wait_until="domcontentloaded", timeout=60000)
 
-        # COOKIE (tutti i casi noti)
-        cookie_selectors = [
+        # COOKIE FIX (tutte le varianti note)
+        cookie_buttons = [
             "button:has-text('Accetta e continua')",
-            "button:has-text('ACCETTA E CONTINUA')",
             "button:has-text('Accetta')",
-            "text='ACCETTA'",
             "text='Accetta'",
+            "text='ACCETTA'"
         ]
 
-        for sel in cookie_selectors:
+        for sel in cookie_buttons:
             try:
                 await page.locator(sel).first.click(timeout=2000)
-                await page.wait_for_timeout(600)
+                await page.wait_for_timeout(500)
                 break
             except:
                 pass
 
-        # FIX: SosFanta ricarica il layout per ~3 secondi
+        # FIX: SosFanta headless refresh DOM → attendi stabilizzazione reale
         await page.wait_for_timeout(3500)
 
-        # Acquisisci blocchi esattamente come nel Colab
+        # Recupera blocchi EXACT come Colab
         all_divs = await page.query_selector_all("div[id]")
-
         blocchi = []
         for el in all_divs:
             dom_id = await el.get_attribute("id")
@@ -140,31 +146,30 @@ async def estrai_sosfanta(drive, folder_id):
         blocchi = blocchi[:MAX_MATCH]
         print("Blocchi trovati:", blocchi)
 
-        # Screenshot identici al Colab
+        # screenshot + crop IDENTICI AL COLAB
         for idx, dom_id in enumerate(blocchi, start=1):
+
             try:
-                # scroll verso elemento come fa Chrome
                 await page.evaluate(
-                    "id => document.getElementById(id).scrollIntoView({block: 'center'})",
+                    "id => document.getElementById(id).scrollIntoView({block:'center'})",
                     dom_id
                 )
-                await page.wait_for_timeout(700)
+                await page.wait_for_timeout(600)
 
-                tmp = os.path.join(OUTPUT_DIR, f"_raw_sos_{idx}.png")
+                raw = os.path.join(OUTPUT_DIR, f"_sos_raw_{idx}.png")
                 final = os.path.join(OUTPUT_DIR, f"sosfanta_{idx}.png")
 
-                await page.locator(f"#{dom_id}").screenshot(path=tmp)
+                await page.locator(f"#{dom_id}").screenshot(path=raw)
 
-                # CROP LATERALE 120px — IDENTICO AL COLAB
-                img = Image.open(tmp)
+                # Crop laterale identico Colab (120px)
+                img = Image.open(raw)
                 w, h = img.size
-                cropped = img.crop((120, 0, w - 120, h))
-                cropped.save(final)
+                img.crop((120, 0, w - 120, h)).save(final)
 
                 upload_or_replace(drive, folder_id, final)
 
             except Exception as e:
-                print(f"Errore SosFanta @ idx {idx}:", e)
+                print(f"Errore SosFanta idx {idx}:", e)
 
         await browser.close()
 
