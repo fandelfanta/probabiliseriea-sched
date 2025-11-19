@@ -241,11 +241,8 @@ async def estrai_screenshots_sosfanta():
         await browser.close()
     
 # ==========================================================
-#  FONTE 2: Fantacalcio (FIXED per la rilevazione di due parti)
+#  FONTE 2: Fantacalcio
 # ==========================================================
-# NOTA: Assicurati che 'from PIL import Image, ImageOps' sia presente
-# all'inizio del tuo run.py (se hai usato il mio ultimo script completo, lo è)
-
 async def estrai_screenshots_fantacalcio():
     FONTE = "Fantacalcio"
     URL = "https://www.fantacalcio.it/probabili-formazioni-serie-a"
@@ -277,13 +274,12 @@ async def estrai_screenshots_fantacalcio():
         matches = await page.query_selector_all("li.match.match-item")
         print(f"🔎 Fantacalcio: trovate {len(matches)} partite")
 
-        for idx, match_box in enumerate(matches[:MAX_MATCH], start=1):
+        for idx, match in enumerate(matches[:MAX_MATCH], start=1):
             try:
-                await match_box.scroll_into_view_if_needed()
+                await match.scroll_into_view_if_needed()
                 await page.wait_for_timeout(700)
                 
-                # Nomi squadre per il log
-                team_names = await match_box.query_selector_all("h3.h6.team-name")
+                team_names = await match.query_selector_all("h3.h6.team-name")
                 if len(team_names) >= 2:
                     home = (await team_names[0].inner_text()).strip()[:3].upper()
                     away = (await team_names[1].inner_text()).strip()[:3].upper()
@@ -293,70 +289,12 @@ async def estrai_screenshots_fantacalcio():
                 else:
                     match_txt = f"Match {idx}"
 
-                # 1. Trova le due parti specifiche all'interno del match_box
-                # La formazione visuale (parte principale)
-                lineup_el = await match_box.query_selector("div.match-formazione-container")
-                # Le note (infortunati/squalificati/news)
-                notes_el = await match_box.query_selector("div.match-box-prob-form-news-v2")
+                filename = f"fantacalcio_{idx}.png"
+                path = f"{filename}"
 
-                if not lineup_el:
-                    print(f"⚠️ Fantacalcio: Formazione non trovata per {match_txt}, salto.")
-                    continue
-                
-                # --- Screenshot Lineup ---
-                lineup_path = f"fantacalcio_{idx}_lineup.png"
-                await lineup_el.screenshot(path=lineup_path)
-                lineup_img = Image.open(lineup_path)
-                
-                # --- Screenshot Notes (se presente) ---
-                notes_img = None
-                if notes_el:
-                    notes_path = f"fantacalcio_{idx}_notes.png"
-                    # Rimuove l'intestazione H2 della sezione News per pulizia
-                    await notes_el.evaluate("""(el) => {
-                        const title = el.querySelector('h2');
-                        if (title) title.remove();
-                    }""")
-                    await notes_el.screenshot(path=notes_path)
-                    notes_img = Image.open(notes_path)
-                    
-                # ======================================================
-                #     UNIONE IMMAGINI (PIL) - (Logica di combinazione)
-                # ======================================================
-                
-                # Parametri per l'unione (Fantacalcio è su sfondo bianco)
-                bianco = (255, 255, 255) 
-                base_width = lineup_img.width
-                gap = 20 # spazio tra formazione e note
-                
-                # Calcola l'altezza totale
-                total_height = lineup_img.height
-                if notes_img:
-                    total_height += gap + notes_img.height
-                
-                combined = Image.new("RGB", (base_width, total_height), bianco)
-                
-                # Unisce le immagini
-                y = 0
-                combined.paste(lineup_img, (0, y))
-                
-                if notes_img:
-                    y += lineup_img.height
-                    # Blocco di separazione
-                    gap_block = Image.new("RGB", (base_width, gap), bianco)
-                    combined.paste(gap_block, (0, y)); y += gap
-                    
-                    # Incolla le note
-                    combined.paste(notes_img, (0, y))
-                
-                # Padding finale e salvataggio
-                combined = ImageOps.expand(combined, border=(20, 20, 20, 20), fill=bianco)
-
-                final_path = f"fantacalcio_{idx}.png"
-                combined.save(final_path)
-
-                link = drive_upload_or_replace(final_path, final_path)
-                print(f"✅ Fantacalcio | {match_txt} → {final_path} (Salvato su Drive) → {link}")
+                await match.screenshot(path=path)
+                link = drive_upload_or_replace(path, filename)
+                print(f"✅ Fantacalcio | {match_txt} → {filename} (Salvato su Drive) → {link}") # Log unificato
 
             except Exception as e:
                 print(f"⚠️ Errore su match {idx}: {e}")
