@@ -241,7 +241,7 @@ async def estrai_screenshots_sosfanta():
         await browser.close()
     
 # ==========================================================
-#  FONTE 2: Fantacalcio (VERSIONE IDENTICA AL COLAB, ADATTATA PER GITHUB)
+#  FONTE 2: Fantacalcio (VERSIONE IDENTICA AL COLAB)
 # ==========================================================
 async def estrai_screenshots_fantacalcio():
     FONTE = "Fantacalcio"
@@ -256,23 +256,40 @@ async def estrai_screenshots_fantacalcio():
         # viewport grande per permettere al DOM di caricarsi come in Colab
         context = await browser.new_context(viewport={"width":1600,"height":4000})
         page = await context.new_page()
+
+        # --- Caricamento pagina ---
         await page.goto(URL, wait_until="domcontentloaded", timeout=60000)
+        await page.wait_for_timeout(1200)
 
-        # cookie / privacy identico al tuo snippet
-        for sel in [
-            "button:has-text('Accetta')",
-            "button:has-text('Accetta e continua')",
-            "text='CONFIRM'",
-            "button:has-text('Confirm')"
-        ]:
-            try:
-                await page.locator(sel).first.click(timeout=2500, force=True)
-                await page.wait_for_timeout(600)
-                break
-            except:
-                pass
+        # ======================================================
+        # 🔥 CHIUSURA POPUP CMP (Quantcast, FundingChoices, ecc.)
+        #   → Versione IDENTICA allo script Colab
+        # ======================================================
+        try:
+            await page.wait_for_selector(
+                "button:has-text('OK'), button:has-text('Continue'), button[mode='primary']",
+                timeout=5000
+            )
+            for sel in [
+                "button:has-text('OK')",
+                "button:has-text('Ok')",
+                "button:has-text('OK, I AGREE')",
+                "button:has-text('CONTINUE')",
+                "button:has-text('Continue')",
+                "button[mode='primary']"
+            ]:
+                try:
+                    await page.locator(sel).click(timeout=800)
+                    await page.wait_for_timeout(400)
+                    break
+                except:
+                    pass
+        except:
+            pass
 
-        # rimuove popup e overlay vari (identico al tuo script)
+        # ======================================================
+        # 🧹 RIMOZIONE OVERLAY / POPUP ACCESSORI (come Colab)
+        # ======================================================
         await page.evaluate("""
             () => {
                 document.documentElement.style.overflow='auto';
@@ -281,18 +298,18 @@ async def estrai_screenshots_fantacalcio():
             }
         """)
 
-        # selettore delle partite — identico al tuo script
+        # elenco partite (identico a Colab)
         matches = await page.query_selector_all("li.match.match-item")
         print(f"🔎 Fantacalcio: trovate {len(matches)} partite")
 
         for idx, match in enumerate(matches[:MAX_MATCH], start=1):
 
             try:
-                # scroll come nel tuo script
+                # scroll come Colab
                 await match.scroll_into_view_if_needed()
                 await page.wait_for_timeout(700)
 
-                # nomi squadra (identico al tuo script)
+                # nomi squadra
                 team_names = await match.query_selector_all("h3.h6.team-name")
                 if len(team_names) >= 2:
                     home = (await team_names[0].inner_text()).strip()[:3].upper()
@@ -303,11 +320,9 @@ async def estrai_screenshots_fantacalcio():
                 else:
                     match_txt = f"Match {idx}"
 
-                # =====================================================
-                # 🎯 IL PUNTO CRITICO:
-                #     CATTURIAMO SOLO LA SEZIONE DELLE FORMAZIONI
-                #     COME FACEVA COLAB
-                # =====================================================
+                # ============================================
+                # 🎯 CATTURA SOLO SEZIONE FORMAZIONI — COME COLAB
+                # ============================================
                 target = await match.query_selector("div.match-container-info")
 
                 if not target:
@@ -316,10 +331,10 @@ async def estrai_screenshots_fantacalcio():
 
                 filename = f"fantacalcio_{idx}.png"
 
-                # screenshot SOLO della sezione formazioni
+                # screenshot della sezione (identico al Colab)
                 await target.screenshot(path=filename)
 
-                # upload (identico al tuo script)
+                # upload invariato
                 link = drive_upload_or_replace(filename, filename)
                 print(f"✅ Fantacalcio | {match_txt} → {filename} → {link}")
 
@@ -328,6 +343,7 @@ async def estrai_screenshots_fantacalcio():
 
         await context.close()
         await browser.close()
+
 
 
 # ==========================================================
