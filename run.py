@@ -241,75 +241,114 @@ async def estrai_screenshots_sosfanta():
         await browser.close()
     
 # ==========================================================
-#  FONTE 2: Fantacalcio
+#  FONTE 2: Fantacalcio (Corretto e Ottimizzato con blocco ADS)
 # ==========================================================
+import os
+# Rimuovi l'importazione di PIL se non la usi, per alleggerire
+
+# Blocchiamo SOLO domini pubblicitari (MINIMO ESSENZIALE)
+BLOCKED_URLS = [
+    "googletagmanager.com", "google-analytics.com", "adservice.google",
+    "doubleclick.net", "pubmatic.com", "criteo.com", "rubiconproject.com",
+    "amazon-adsystem.com", "googlesyndication.com"
+]
+
 async def estrai_screenshots_fantacalcio():
-    FONTE = "Fantacalcio"
-    URL = "https://www.fantacalcio.it/probabili-formazioni-serie-a"
+    FONTE = "Fantacalcio"
+    URL = "https://www.fantacalcio.it/probabili-formazioni-serie-a"
+    # FIX ERRORE: Inizializzazione della variabile 'rows'
+    rows = [] 
+    
+    # Inizializzazione per la riga del foglio
+    try:
+        giornata_val = GIORNATA
+    except NameError:
+        giornata_val = ""
 
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=True, 
-            args=["--no-sandbox", "--disable-dev-shm-usage", "--headless=new"]
-        )
-        context = await browser.new_context(viewport={"width":1600,"height":4000})
-        page = await context.new_page()
-        await page.goto(URL, wait_until="domcontentloaded", timeout=60000)
 
-        # cookie/privacy
-        for sel in ["button:has-text('Accetta')", "button:has-text('Accetta e continua')", "text='CONFIRM'", "button:has-text('Confirm')"]:
-            try:
-                await page.locator(sel).first.click(timeout=2500, force=True)
-                await page.wait_for_timeout(600)
-                break
-            except: pass
-        await page.evaluate("""
-            () => {
-                document.documentElement.style.overflow='auto';
-                document.body.style.overflow='auto';
-                document.querySelectorAll('[role="dialog"], .fc-consent-root, .modal, .popup').forEach(e=>e.remove());
-            }
-        """)
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(
+            headless=True, 
+            args=["--no-sandbox", "--disable-dev-shm-usage", "--headless=new"]
+        )
+        context = await browser.new_context(viewport={"width":1600,"height":6000}) # Aumentato Viewport
+        page = await context.new_page()
+        
+        # OTTIMIZZAZIONE CRITICA 1: Timeout globale di 60 secondi
+        page.set_default_timeout(60000) 
+        
+        # OTTIMIZZAZIONE CRITICA 2: Blocco URL Pubblicitari
+        await page.route("**/*", lambda route: route.abort()
+                         if any(b in route.request.url for b in BLOCKED_URLS)
+                         else route.continue_())
 
-        matches = await page.query_selector_all("li.match.match-item")
-        print(f"🔎 Fantacalcio: trovate {len(matches)} partite")
+        # Navigazione (senza timeout esplicito, usa il default di 60s)
+        await page.goto(URL, wait_until="domcontentloaded") 
 
-        for idx, match in enumerate(matches[:MAX_MATCH], start=1):
-            try:
-                await match.scroll_into_view_if_needed()
-                await page.wait_for_timeout(700)
+        # cookie/privacy
+        for sel in ["button:has-text('Accetta')", "button:has-text('Accetta e continua')"]:
+            try:
+                await page.locator(sel).first.click(timeout=2500, force=True)
+                await page.wait_for_timeout(600)
+                break
+            except: pass
+            
+        await page.evaluate("""
+            () => {
+                document.querySelectorAll('.ad-box, .banner, footer, header').forEach(e => e.remove());
+                document.documentElement.style.overflow='auto';
+                document.body.style.overflow='auto';
+                document.querySelectorAll('[role="dialog"], .fc-consent-root, .modal, .popup').forEach(e=>e.remove());
+            }
+        """)
+
+        # Attesa dei risultati
+        await page.wait_for_selector('li.match.match-item')
+
+        matches = await page.query_selector_all("li.match.match-item")
+        print(f"🔎 Fantacalcio: trovate {len(matches)} partite")
+
+        for idx, match in enumerate(matches[:MAX_MATCH], start=1):
+            try:
+                await match.scroll_into_view_if_needed()
+                await page.wait_for_timeout(700)
+                
+                team_names = await match.query_selector_all("h3.h6.team-name")
+                if len(team_names) >= 2:
+                    home = (await team_names[0].inner_text()).strip()[:3].upper()
+                    away = (await team_names[1].inner_text()).strip()[:3].upper()
+                    if home == "HEL": home = "VER"
+                    if away == "HEL": away = "VER"
+                    match_txt = f"{home} - {away}"
+                else:
+                    match_txt = f"Match {idx}"
+
+                filename = f"fantacalcio_{idx}.png"
+                path = f"{filename}"
+
+                # Cattura il blocco intero della partita (il contenitore li.match.match-item)
+                await match.screenshot(path=path) 
+                link = drive_upload_or_replace(path, filename)
                 
-                team_names = await match.query_selector_all("h3.h6.team-name")
-                if len(team_names) >= 2:
-                    home = (await team_names[0].inner_text()).strip()[:3].upper()
-                    away = (await team_names[1].inner_text()).strip()[:3].upper()
-                    if home == "HEL": home = "VER"
-                    if away == "HEL": away = "VER"
-                    match_txt = f"{home} - {away}"
-                else:
-                    match_txt = f"Match {idx}"
+                # FIX ERRORE: Aggiunta riga alla lista
+                rows.append([FONTE, giornata_val, idx, match_txt, link])
+                
+                print(f"✅ Fantacalcio | {match_txt} → {filename} (Salvato su Drive) → {link}") # Log unificato
 
-                filename = f"fantacalcio_{idx}.png"
-                path = f"{filename}"
+            except Exception as e:
+                print(f"⚠️ Errore su match {idx}: {e}")
 
-                await match.screenshot(path=path)
-                link = drive_upload_or_replace(path, filename)
-                print(f"✅ Fantacalcio | {match_txt} → {filename} (Salvato su Drive) → {link}") # Log unificato
+        await context.close(); await browser.close()
 
-            except Exception as e:
-                print(f"⚠️ Errore su match {idx}: {e}")
-
-        await context.close(); await browser.close()
-
-    if rows:
-        all_vals = ws.get_all_values()
-        # Trova la prima riga "Fantacalcio" (escludendo l'header)
-        start = next(i for i, r in enumerate(all_vals, start=1) if i > 1 and r[0] == "Fantacalcio")
-        ws.update(range_name=f"A{start}:E{start+len(rows)-1}", values=rows)
-        print(f"🟢 Foglio aggiornato (Fantacalcio): {len(rows)} righe.")
-    else:
-        print("ℹ️ Nessuna riga scritta per Fantacalcio.")
-
+    # Aggiornamento Foglio
+    if rows:
+        all_vals = ws.get_all_values()
+        # Trova la prima riga "Fantacalcio" (escludendo l'header)
+        start = next(i for i, r in enumerate(all_vals, start=1) if i > 1 and r[0] == "Fantacalcio")
+        ws.update(range_name=f"A{start}:E{start+len(rows)-1}", values=rows)
+        print(f"🟢 Foglio aggiornato (Fantacalcio): {len(rows)} righe.")
+    else:
+        print("ℹ️ Nessuna riga scritta per Fantacalcio.")
 
 # ==========================================================
 #  FONTE 3: Gazzetta.it 
