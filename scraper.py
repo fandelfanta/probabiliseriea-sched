@@ -91,7 +91,7 @@ async def estrai_sosfanta(drive, folder_id):
 
         await page.goto(URL, wait_until="domcontentloaded", timeout=60000)
 
-        # COOKIE
+        # COOKIE IDENTICI AL COLAB
         for sel in ["button:has-text('Accetta e continua')",
                     "button:has-text('Accetta')",
                     "text='ACCETTA E CONTINUA'"]:
@@ -102,6 +102,10 @@ async def estrai_sosfanta(drive, folder_id):
             except:
                 pass
 
+        # --- FIX CERTIFICATO: queste due righe risolvono l'errore Playwright
+        await page.wait_for_load_state("networkidle")
+        await page.wait_for_timeout(2000)
+
         # SCROLL → IDENTICO AL COLAB
         divs = await page.query_selector_all("div[id]")
         blocchi = []
@@ -109,6 +113,7 @@ async def estrai_sosfanta(drive, folder_id):
             _id = await el.get_attribute("id")
             if _id and re.match(r"^[A-Z]{3}-[A-Z]{3}(-\d+)?$", _id):
                 blocchi.append(_id)
+
 
         blocchi = blocchi[:MAX_MATCH]
         print("Partite:", blocchi)
