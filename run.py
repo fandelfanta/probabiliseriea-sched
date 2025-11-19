@@ -241,8 +241,11 @@ async def estrai_screenshots_sosfanta():
         await browser.close()
     
 # ==========================================================
-#  FONTE 2: Fantacalcio (SCREENSHOT PERFETTO)
+#  FONTE 2: Fantacalcio (FIXED Selettori e Pulizia File)
 # ==========================================================
+import os
+from PIL import Image, ImageOps # Import necessari se non presenti
+
 async def estrai_screenshots_fantacalcio():
     FONTE = "Fantacalcio"
     URL = "https://www.fantacalcio.it/probabili-formazioni-serie-a"
@@ -250,23 +253,20 @@ async def estrai_screenshots_fantacalcio():
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(
-            headless=True,
+            headless=True, 
             args=["--no-sandbox", "--disable-dev-shm-usage", "--headless=new"]
         )
         context = await browser.new_context(viewport={"width":1600,"height":4000})
         page = await context.new_page()
         await page.goto(URL, wait_until="domcontentloaded", timeout=60000)
 
-        # Cookie
-        for sel in ["button:has-text('Accetta')", "button:has-text('Accetta e continua')"]:
+        # Gestione cookie/privacy
+        for sel in ["button:has-text('Accetta')", "button:has-text('Accetta e continua')", "text='CONFIRM'", "button:has-text('Confirm')"]:
             try:
                 await page.locator(sel).first.click(timeout=2500, force=True)
                 await page.wait_for_timeout(600)
                 break
-            except:
-                pass
-
-        # Rimuove popup
+            except: pass
         await page.evaluate("""
             () => {
                 document.documentElement.style.overflow='auto';
@@ -278,13 +278,16 @@ async def estrai_screenshots_fantacalcio():
         matches = await page.query_selector_all("li.match.match-item")
         print(f"🔎 Fantacalcio: trovate {len(matches)} partite")
 
-        for idx, match in enumerate(matches[:MAX_MATCH], start=1):
+        for idx, match_box in enumerate(matches[:MAX_MATCH], start=1):
+            lineup_path = None
+            notes_path = None
+            final_path = None
             try:
-                await match.scroll_into_view_if_needed()
+                await match_box.scroll_into_view_if_needed()
                 await page.wait_for_timeout(700)
-
-                # Testo squadra
-                team_names = await match.query_selector_all("h3.h6.team-name")
+                
+                # Nomi squadre per il log
+                team_names = await match_box.query_selector_all("h3.h6.team-name")
                 if len(team_names) >= 2:
                     home = (await team_names[0].inner_text()).strip()[:3].upper()
                     away = (await team_names[1].inner_text()).strip()[:3].upper()
@@ -294,40 +297,94 @@ async def estrai_screenshots_fantacalcio():
                 else:
                     match_txt = f"Match {idx}"
 
-                # 🎯 CONTENITORE GIUSTO DA CATTURARE
-                target = await match.query_selector("div.match-container-info")
-                if not target:
-                    target = await match.query_selector("div.match-container")
-                if not target:
-                    print(f"⚠️ Nessun contenitore formazioni per {match_txt}.")
+                # 1. Trova le due parti specifiche con selettori specifici
+                # LINEUP: Il campo da gioco
+                lineup_el = await match_box.query_selector("div.match-formazione-container")
+                # NOTES: La tabella indisponibili/news
+                notes_el = await match_box.query_selector("div.match-box-prob-form-news-v2")
+
+
+                if not lineup_el:
+                    print(f"⚠️ Fantacalcio: Formazione (lineup_el) non trovata per {match_txt}, salto.")
                     continue
+                
+                # --- Screenshot Lineup ---
+                lineup_path = f"fantacalcio_{idx}_lineup.png"
+                await lineup_el.screenshot(path=lineup_path)
+                lineup_img = Image.open(lineup_path)
+                
+                # --- Screenshot Notes (se presente) ---
+                notes_img = None
+                if notes_el:
+                    notes_path = f"fantacalcio_{idx}_notes.png"
+                    # Rimuove l'intestazione H2 della sezione News per pulizia
+                    await notes_el.evaluate("""(el) => {
+                        const title = el.querySelector('h2');
+                        if (title) title.remove();
+                    }""")
+                    await notes_el.screenshot(path=notes_path)
+                    notes_img = Image.open(notes_path)
+                    
+                # ======================================================
+                #     UNIONE IMMAGINI (PIL)
+                # ======================================================
+                
+                bianco = (255, 255, 255) 
+                base_width = lineup_img.width
+                gap = 20 
+                
+                total_height = lineup_img.height
+                if notes_img:
+                    total_height += gap + notes_img.height
+                
+                combined = Image.new("RGB", (base_width, total_height), bianco)
+                
+                y = 0
+                combined.paste(lineup_img, (0, y))
+                
+                if notes_img:
+                    y += lineup_img.height
+                    gap_block = Image.new("RGB", (base_width, gap), bianco)
+                    combined.paste(gap_block, (0, y)); y += gap
+                    
+                    if notes_img.width < base_width:
+                        x_offset = (base_width - notes_img.width) // 2
+                    else:
+                        x_offset = 0
+                        
+                    combined.paste(notes_img, (x_offset, y))
+                
+                combined = ImageOps.expand(combined, border=(20, 20, 20, 20), fill=bianco)
 
-                filename = f"fantacalcio_{idx}.png"
+                final_filename = f"fantacalcio_{idx}.png"
+                final_path = final_filename
+                combined.save(final_path)
 
-                # Screenshot del contenitore interno
-                await target.screenshot(path=filename)
-
-                # Upload
-                link = drive_upload_or_replace(filename, filename)
-                print(f"✅ Fantacalcio | {match_txt} → {filename} → {link}")
-
-                # Rimuovi file locale
-                os.remove(filename)
-
+                # --- UPLOAD SU DRIVE ---
+                link = drive_upload_or_replace(final_path, final_filename)
+                rows.append([FONTE, GIORNATA, idx, match_txt, link])
+                print(f"✅ Fantacalcio | {match_txt} → {final_filename} (Salvato su Drive) → {link}")
+                
             except Exception as e:
-                print(f"⚠️ Errore su match {idx}: {e}")
+                print(f"⚠️ Errore su match {idx} ({match_txt}): {e}")
+            
+            finally:
+                # --- Eliminazione file temporanei locali per evitare problemi di caching ---
+                for p in [final_path, notes_path, lineup_path]:
+                    if p and os.path.exists(p):
+                        os.remove(p)
 
-        await context.close()
-        await browser.close()
 
-    # Aggiornamento Foglio
-    if rows:
-        all_vals = ws.get_all_values()
-        start = next(i for i, r in enumerate(all_vals, start=1) if i > 1 and r[0] == "Fantacalcio")
-        ws.update(range_name=f"A{start}:E{start+len(rows)-1}", values=rows)
-        print(f"🟢 Foglio aggiornato (Fantacalcio): {len(rows)} righe.")
-    else:
-        print("ℹ️ Nessuna riga scritta per Fantacalcio.")
+        await context.close(); await browser.close()
+
+    if rows:
+        all_vals = ws.get_all_values()
+        # Trova la prima riga "Fantacalcio" (escludendo l'header)
+        start = next(i for i, r in enumerate(all_vals, start=1) if i > 1 and r[0] == "Fantacalcio")
+        ws.update(range_name=f"A{start}:E{start+len(rows)-1}", values=rows)
+        print(f"🟢 Foglio aggiornato (Fantacalcio): {len(rows)} righe.")
+    else:
+        print("ℹ️ Nessuna riga scritta per Fantacalcio.")
 
 # ==========================================================
 #  FONTE 3: Gazzetta.it 
