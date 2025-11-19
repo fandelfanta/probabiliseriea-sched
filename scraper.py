@@ -103,8 +103,8 @@ async def estrai_sosfanta(drive, folder_id):
                 pass
 
         # --- FIX CERTIFICATO: queste due righe risolvono l'errore Playwright
-        await page.wait_for_load_state("networkidle")
-        await page.wait_for_timeout(2000)
+        await page.wait_for_selector("div[id]", timeout=15000)
+        await page.wait_for_timeout(1500)
 
         # SCROLL → IDENTICO AL COLAB
         divs = await page.query_selector_all("div[id]")
