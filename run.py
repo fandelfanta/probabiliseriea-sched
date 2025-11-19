@@ -241,10 +241,12 @@ async def estrai_screenshots_sosfanta():
         await browser.close()
     
 # ==========================================================
-#  FONTE 2: Fantacalcio (FIXED con Unione Immagini e Pulizia DOM)
+#  FONTE 2: Fantacalcio (FIX Screenshot + NO GIORNATA Vincolante)
 # ==========================================================
 import os
-from PIL import Image, ImageOps # Necessario per l'unione
+# Assicurati che questi import siano presenti all'inizio del tuo run.py:
+# from PIL import Image, ImageOps 
+# import os 
 
 async def estrai_screenshots_fantacalcio():
     FONTE = "Fantacalcio"
@@ -275,19 +277,19 @@ async def estrai_screenshots_fantacalcio():
             }
         """)
         
-        # PASSO CRUCIALE: Nasconde le sezioni indesiderate
+        # PASSO CRUCIALE: Rimuove le sezioni indesiderate (FIX Pulizia DOM)
+        # Rimuove le sezioni "Presentazione squadre" e "Dettaglio calciatori" che causano l'eccesso nello screenshot
         await page.evaluate("""
             () => {
-                // Selezioni le sezioni sotto le formazioni e le nasconde
-                const unnecessarySelectors = [
-                    '#match-container .page-content-wrapper .row:not(:has(.match-formazione-container))', // Nasconde sezioni globali dopo le partite
+                const unwantedSelectors = [
                     '.match-container-info-v2', 
                     '.presentazione-squadre',
-                    '.dettaglio-calciatori'
+                    '.dettaglio-calciatori',
+                    '.sezione-probabili-match' // Rimuove sezioni che non sono formazioni
                 ];
-                unnecessarySelectors.forEach(sel => {
+                unwantedSelectors.forEach(sel => {
                     document.querySelectorAll(sel).forEach(el => {
-                        el.style.display = 'none';
+                        el.remove(); // Rimuovi completamente dal DOM
                     });
                 });
             }
@@ -295,15 +297,6 @@ async def estrai_screenshots_fantacalcio():
 
         matches = await page.query_selector_all("li.match.match-item")
         print(f"🔎 Fantacalcio: trovate {len(matches)} partite")
-        
-        # Qui recuperiamo GIORNATA che sembra mancare in questo contesto
-        try:
-            global GIORNATA
-        except NameError:
-             # Se GIORNATA non è definita globalmente, usiamo un fallback o la definiamo qui se il Colab lo faceva
-             # Nel Colab originale GIORNATA era definita in CONFIG [cite: 94]
-             # Se il problema persiste, dovrai assicurarti che la variabile sia accessibile globalmente
-             GIORNATA = 1 # Fallback, assumendo la prima giornata se non definita altrove
 
         for idx, match_box in enumerate(matches[:MAX_MATCH], start=1):
             lineup_path = None
@@ -332,12 +325,12 @@ async def estrai_screenshots_fantacalcio():
                     print(f"⚠️ Fantacalcio: Formazione non trovata per {match_txt}, salto.")
                     continue
                 
-                # --- Screenshot Lineup ---
+                # --- Screenshot Lineup (solo la formazione) ---
                 lineup_path = f"fantacalcio_{idx}_lineup.png"
                 await lineup_el.screenshot(path=lineup_path)
                 lineup_img = Image.open(lineup_path)
                 
-                # --- Screenshot Notes (se presente) ---
+                # --- Screenshot Notes (solo le note) ---
                 notes_img = None
                 if notes_el:
                     notes_path = f"fantacalcio_{idx}_notes.png"
@@ -386,11 +379,13 @@ async def estrai_screenshots_fantacalcio():
 
                 # --- UPLOAD SU DRIVE ---
                 link = drive_upload_or_replace(final_path, final_filename)
-                rows.append([FONTE, GIORNATA, idx, match_txt, link])
+                
+                # FIX GIORNATA: Inserita una stringa vuota "" al posto della variabile GIORNATA
+                rows.append([FONTE, "", idx, match_txt, link]) 
                 print(f"✅ Fantacalcio | {match_txt} → {final_filename} (Salvato su Drive) → {link}")
                 
             except Exception as e:
-                print(f"⚠️ Errore su match {idx} ({match_txt}): {e}")
+                print(f"⚠️ Errore generico su match {idx} ({match_txt}): {e}")
             
             finally:
                 # --- Eliminazione file temporanei locali ---
@@ -402,15 +397,14 @@ async def estrai_screenshots_fantacalcio():
         await context.close(); await browser.close()
 
     if rows:
-        # Questa logica di aggiornamento è presa dal tuo Colab originale [cite: 137]
+        # Questa logica di aggiornamento è presa dal tuo Colab originale
         all_vals = ws.get_all_values()
+        # Nota: Qui la colonna Giornata nel foglio avrà un valore vuoto
         start = next(i for i, r in enumerate(all_vals, start=1) if i > 1 and r[0] == "Fantacalcio")
         ws.update(range_name=f"A{start}:E{start+len(rows)-1}", values=rows)
         print(f"🟢 Foglio aggiornato (Fantacalcio): {len(rows)} righe.")
     else:
         print("ℹ️ Nessuna riga scritta per Fantacalcio.")
-
-
 
 # ==========================================================
 #  FONTE 3: Gazzetta.it — versione stabile 9:16 optimized (Log puliti)
