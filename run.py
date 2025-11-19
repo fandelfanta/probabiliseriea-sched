@@ -240,134 +240,144 @@ async def estrai_screenshots_sosfanta():
         await context.close()
         await browser.close()
     
-# ================================================
-#  FANTACALCIO – Versione Funzionante e Correggibile
-# ================================================
+# ==========================================================
+#  FONTE 2: Fantacalcio (SOLUZIONE FINALE: Due Screenshot Separati Senza PIL)
+# ==========================================================
 import os
-from PIL import Image, ImageOps
+# Assicurati di non importare Image, ImageOps in cima al file se non servono
 
-# Blocchiamo SOLO domini pubblicitari (JS/CSS NON devono essere bloccati)
+# Blocchiamo SOLO domini pubblicitari
 BLOCKED_URLS = [
-    "googletagmanager.com", "google-analytics.com", "adservice.google",
-    "doubleclick.net", "pubmatic.com", "criteo.com", "rubiconproject.com",
-    "amazon-adsystem.com", "googlesyndication.com"
+    "googletagmanager.com", "google-analytics.com", "adservice.google",
+    "doubleclick.net", "pubmatic.com", "criteo.com", "rubiconproject.com",
+    "amazon-adsystem.com", "googlesyndication.com"
 ]
 
 async def estrai_screenshots_fantacalcio():
-    FONTE = "Fantacalcio"
-    URL = "https://www.fantacalcio.it/probabili-formazioni-serie-a"
-    rows = []
+    FONTE = "Fantacalcio"
+    URL = "https://www.fantacalcio.it/probabili-formazioni-serie-a"
+    rows = []
 
-    # GIORNATA (se presente)
-    try:
-        giornata_val = GIORNATA
-    except:
-        giornata_val = ""
+    try:
+        giornata_val = GIORNATA
+    except:
+        giornata_val = ""
 
-    async with async_playwright() as p:
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-dev-shm-usage", "--headless=new"]
+        )
 
-        browser = await p.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-dev-shm-usage", "--headless=new"]
-        )
+        context = await browser.new_context(
+            viewport={"width": 1600, "height": 6000}
+        )
+        page = await context.new_page()
+        page.set_default_timeout(60000) 
 
-        # FIX: niente timeout qui, solo viewport
-        context = await browser.new_context(
-            viewport={"width":1600, "height":6000}
-        )
+        # BLOCCO SOLO URL PUBBLICITARI
+        await page.route("**/*", lambda route: route.abort()
+                         if any(b in route.request.url for b in BLOCKED_URLS)
+                         else route.continue_())
 
-        page = await context.new_page()
-        page.set_default_timeout(60000)  # timeout valido
+        # CARICA PAGINA
+        await page.goto(URL, wait_until="domcontentloaded")
+        await page.wait_for_timeout(2000)
 
-        # BLOCCO SOLO URL PUBBLICITARI
-        await page.route(
-            "**/*",
-            lambda route: route.abort()
-            if any(b in route.request.url for b in BLOCKED_URLS)
-            else route.continue_()
-        )
+        # COOKIE & PULIZIA
+        for sel in ["button:has-text('Accetta')", "button:has-text('Accetta e continua')"]:
+            try:
+                await page.locator(sel).first.click(timeout=2000)
+                await page.wait_for_timeout(300)
+                break
+            except:
+                pass
 
-        # CARICA PAGINA
-        await page.goto(URL, wait_until="domcontentloaded")
-        await page.wait_for_timeout(2000)
+        # PULIZIA DOM
+        await page.evaluate("""
+            () => {
+                document.querySelectorAll('.ad-box, .banner, footer, header').forEach(e => e.remove());
+            }
+        """)
+        
+        # ATTESA: Attendiamo l'elemento base
+        try:
+             await page.wait_for_selector('li.match-item') 
+             print("✅ Contenuto Fantacalcio caricato dopo attesa globale.")
+        except Exception as e:
+             print(f"⚠️ ATTENZIONE: Caricamento Fantacalcio non completato: {e}. Il loop potrebbe fallire.")
 
-        # COOKIE
-        for sel in ["button:has-text('Accetta')", "button:has-text('Accetta e continua')"]:
+
+        # Troviamo le partite
+        matches = await page.query_selector_all("li.match-item")
+        print(f"🔎 Fantacalcio: trovate {len(matches)} partite")
+
+        if len(matches) == 0: return
+
+        for idx, match_box in enumerate(matches[:MAX_MATCH], start=1):
+            lineup_path = None
+            notes_path = None
+            link_lineup = None # Inizializzazione per evitare errore nel log
+            
+            # Scroll in vista
+            await match_box.scroll_into_view_if_needed()
+            await page.wait_for_timeout(300)
+
+            # Titolo squadre
+            try:
+                nomi = await match_box.query_selector_all("h3.team-name")
+                home = (await nomi[0].inner_text()).strip()[:3].upper()
+                away = (await nomi[1].inner_text()).strip()[:3].upper()
+            except:
+                home = f"M{idx}"
+                away = f"M{idx}"
+
+            if home == "HEL": home = "VER"
+            if away == "HEL": away = "VER"
+
+            match_txt = f"{home} - {away}"
+
+            # CATTURA 1: Formazione (prima colonna)
             try:
-                await page.locator(sel).first.click(timeout=3000)
-                await page.wait_for_timeout(300)
-                break
-            except:
-                pass
-
-        # PULIZIA DOM (NON RIMUOVO JS/CSS!)
-        await page.evaluate("""
-            () => {
-                const bad = ['.ad-box', '.banner', 'footer', 'header'];
-                bad.forEach(sel => {
-                    document.querySelectorAll(sel).forEach(e => e.remove());
-                });
-            }
-        """)
-
-        # SELETTORE CORRETTO 2024
-        matches = await page.query_selector_all("li.match-item")
-        print(f"🔎 Fantacalcio: trovate {len(matches)} partite")
-
-        if len(matches) == 0:
-            print("❌ ERRORE: Nessuna partita rilevata → layout bloccato o DOM incompleto.")
-            return []
-
-        # LOOP PARTITE
-        for idx, match_box in enumerate(matches[:MAX_MATCH], start=1):
-
-            await match_box.scroll_into_view_if_needed()
-            await page.wait_for_timeout(300)
-
-            # NOMI SQUADRE
+                # Selettore basato su nth-child(1) per la prima colonna (Formazione)
+                lineup_el = await match_box.query_selector("div.probabili-formazioni__container > div.row > div:nth-child(1)")
+                if lineup_el:
+                    lineup_path = f"fantacalcio_{idx}_lineup.png"
+                    await lineup_el.screenshot(path=lineup_path) 
+                    link_lineup = drive_upload_or_replace(lineup_path, lineup_path)
+                    print(f"✅ Fantacalcio | {match_txt} → Formazione salvata → {link_lineup}")
+            except Exception as e:
+                print(f"⚠️ Errore Formazione {match_txt}: {e}")
+                
+            # CATTURA 2: Note (seconda colonna)
             try:
-                team_names = await match_box.query_selector_all("h3.team-name")
-                home = (await team_names[0].inner_text()).strip()[:3].upper()
-                away = (await team_names[1].inner_text()).strip()[:3].upper()
-            except:
-                home = f"P{idx}"
-                away = f"P{idx}"
+                # Selettore basato su nth-child(2) per la seconda colonna (Note)
+                notes_el = await match_box.query_selector("div.probabili-formazioni__container > div.row > div:nth-child(2)")
+                if notes_el:
+                    notes_path = f"fantacalcio_{idx}_notes.png"
+                    await notes_el.screenshot(path=notes_path)
+                    link_notes = drive_upload_or_replace(notes_path, notes_path)
+                    print(f"✅ Fantacalcio | {match_txt} → Note salvate → {link_notes}")
+            except Exception as e:
+                print(f"⚠️ Errore Note {match_txt}: {e}")
 
-            if home == "HEL": home = "VER"
-            if away == "HEL": away = "VER"
+            # Salva nel foglio solo la riga principale, usando il link della Formazione
+            rows.append([FONTE, giornata_val, idx, match_txt, link_lineup if link_lineup else "N/A"]) 
+            
+            # Rimuovi locale
+            if lineup_path and os.path.exists(lineup_path): os.remove(lineup_path)
+            if notes_path and os.path.exists(notes_path): os.remove(notes_path)
 
-            match_txt = f"{home} - {away}"
-            final_filename = f"fantacalcio_{idx}.png"
+        await context.close()
+        await browser.close()
 
-            # NUOVO CONTENITORE FORMATIONI
-            target = await match_box.query_selector("div.probabili-formazioni__container")
-
-            if not target:
-                print(f"❌ Contenitore non trovato per {match_txt}")
-                continue
-
-            # SCREENSHOT
-            await target.screenshot(path=final_filename)
-
-            # BORDO BIANCO
-            img = Image.open(final_filename)
-            img = ImageOps.expand(img, border=20, fill=(255, 255, 255))
-            img.save(final_filename)
-
-            # UPLOAD
-            link = drive_upload_or_replace(final_filename, final_filename)
-
-            rows.append([FONTE, giornata_val, idx, match_txt, link])
-            print(f"✅ Fantacalcio | {match_txt} → {final_filename} → {link}")
-
-            # RIMUOVE FILE LOCALE
-            if os.path.exists(final_filename):
-                os.remove(final_filename)
-
-        await context.close()
-        await browser.close()
-
-    return rows
+    if rows:
+        all_vals = ws.get_all_values()
+        start = next(i for i, r in enumerate(all_vals, start=1) if i > 1 and r[0] == "Fantacalcio")
+        ws.update(range_name=f"A{start}:E{start+len(rows)-1}", values=rows)
+        print(f"🟢 Foglio aggiornato (Fantacalcio): {len(rows)} righe.")
+    else:
+        print("ℹ️ Nessuna riga scritta per Fantacalcio.")
 
 # ==========================================================
 #  FONTE 3: Gazzetta.it 
