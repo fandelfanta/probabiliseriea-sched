@@ -241,10 +241,10 @@ async def estrai_screenshots_sosfanta():
         await browser.close()
     
 # ==========================================================
-#  FONTE 2: Fantacalcio (FIX Screenshot: Pulizia DOM + Screenshot Blocco Affidabile)
+#  FONTE 2: Fantacalcio (FIX Screenshot: Pulizia DOM + Interazione Forzata)
 # ==========================================================
 import os
-from PIL import Image, ImageOps # Import mantenuto per coerenza, anche se non usiamo l'unione
+from PIL import Image, ImageOps 
 
 async def estrai_screenshots_fantacalcio():
     FONTE = "Fantacalcio"
@@ -260,7 +260,7 @@ async def estrai_screenshots_fantacalcio():
         page = await context.new_page()
         await page.goto(URL, wait_until="domcontentloaded", timeout=60000)
 
-        # Gestione cookie/privacy
+        # Gestione cookie/privacy (mantenuta)
         for sel in ["button:has-text('Accetta')", "button:has-text('Accetta e continua')", "text='CONFIRM'", "button:has-text('Confirm')"]:
             try:
                 await page.locator(sel).first.click(timeout=2500, force=True)
@@ -276,7 +276,6 @@ async def estrai_screenshots_fantacalcio():
         """)
         
         # PASSO CRUCIALE 1: Rimuove le sezioni indesiderate (Pulizia DOM Aggressiva)
-        # Rimuoviamo gli elementi che non vogliamo *prima* di scorrere e scattare la foto.
         await page.evaluate("""
             () => {
                 const unwantedSelectors = [
@@ -294,11 +293,12 @@ async def estrai_screenshots_fantacalcio():
             }
         """)
         
-        # Garantisce che i blocchi partita siano caricati e visibili
+        # Garantisce che i blocchi partita siano caricati
         try:
-            await page.wait_for_selector('li.match.match-item', timeout=15000)
+            # Attende che il blocco formazione sia presente nel DOM, anche se nascosto
+            await page.wait_for_selector('li.match.match-item div.match-box-prob-form-v2', timeout=15000)
         except:
-             print("⚠️ Avviso: I blocchi partita non si sono caricati in tempo.")
+             print("⚠️ Avviso: I blocchi formazione non si sono caricati in tempo.")
         
         matches = await page.query_selector_all("li.match.match-item")
         print(f"🔎 Fantacalcio: trovate {len(matches)} partite")
@@ -312,7 +312,7 @@ async def estrai_screenshots_fantacalcio():
                 await match_box.scroll_into_view_if_needed()
                 await page.wait_for_timeout(700)
                 
-                # Nomi squadre per il log
+                # Nomi squadre per il log (mantenuti)
                 team_names = await match_box.query_selector_all("h3.h6.team-name")
                 if len(team_names) >= 2:
                     home = (await team_names[0].inner_text()).strip()[:3].upper()
@@ -320,13 +320,27 @@ async def estrai_screenshots_fantacalcio():
                     if home == "HEL": home = "VER"
                     if away == "HEL": away = "VER"
                     match_txt = f"{home} - {away}"
-                
-                # Scatta lo screenshot sull'intero blocco affidabile (che ora è pulito)
+
+                # PASSO CRUCIALE 2: FORZARE IL RENDERING DELLA FORMAZIONE
+                # Tenta di cliccare sul blocco formazione per assicurare che sia espanso
+                form_box = await match_box.query_selector("div.match-box-prob-form-v2")
+                if form_box:
+                    # Non clicchiamo, ma usiamo la funzione evaluate per rimuovere stili nascosti
+                    await form_box.evaluate("""(el) => {
+                        // Forza la visualizzazione di eventuali contenuti nascosti
+                        el.style.display = 'block';
+                        el.style.visibility = 'visible';
+                        // Rimuove eventuali classi che nascondono o minimizzano
+                        el.classList.remove('is-hidden', 'minimized');
+                        // Forza il ricalcolo del layout
+                        el.offsetHeight; 
+                    }""")
+                    await page.wait_for_timeout(500) # Attende il ricalcolo
+
+                # Scatta lo screenshot sull'intero blocco affidabile (che ora è pulito e reso)
                 final_filename = f"fantacalcio_{idx}.png"
                 final_path = final_filename
                 
-                # Questo è il cuore del FIX: Scatta la foto sul contenitore più grande
-                # che è stato preventivamente ripulito in JavaScript.
                 await match_box.screenshot(path=final_path)
 
                 # --- UPLOAD SU DRIVE ---
@@ -337,7 +351,7 @@ async def estrai_screenshots_fantacalcio():
                 print(f"✅ Fantacalcio | {match_txt} → {final_filename} (Salvato su Drive) → {link}")
                 
             except Exception as e:
-                # Non dovrebbe più esserci l'errore "Formazione non trovata"
+                # Errore generico (non più "Formazione non trovata")
                 print(f"⚠️ Errore generico su match {idx} ({match_txt}): {e}")
             
             finally:
@@ -349,7 +363,6 @@ async def estrai_screenshots_fantacalcio():
         await context.close(); await browser.close()
 
     if rows:
-        # Questa logica di aggiornamento è presa dal tuo Colab originale
         all_vals = ws.get_all_values()
         start = next(i for i, r in enumerate(all_vals, start=1) if i > 1 and r[0] == "Fantacalcio")
         ws.update(range_name=f"A{start}:E{start+len(rows)-1}", values=rows)
