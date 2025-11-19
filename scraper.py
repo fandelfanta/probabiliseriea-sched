@@ -88,35 +88,44 @@ async def estrai_sosfanta(drive, folder_id):
 
     async with async_playwright() as p:
 
+        # Chrome-like HEADLESS (identico a Colab)
         browser = await p.chromium.launch(
             headless=True,
             args=[
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
-                "--disable-gpu",
                 "--disable-dev-shm-usage",
-                "--use-gl=swiftshader",
+                "--disable-gpu",
                 "--enable-webgl",
                 "--ignore-gpu-blacklist",
-                "--window-size=1920,1080"
+                "--use-gl=swiftshader",
+                "--window-size=1366,768",
+                "--disable-background-timer-throttling",
+                "--disable-renderer-backgrounding",
+                "--disable-backgrounding-occluded-windows"
             ]
         )
 
+        # Contesto Chrome Desktop reale
         context = await browser.new_context(
-            viewport={"width": 1920, "height": 1080},
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
-            device_scale_factor=1,
+            viewport={"width": 1366, "height": 768},
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0 Safari/537.36"
+            ),
             is_mobile=False,
             has_touch=False,
+            device_scale_factor=1,
             locale="it-IT",
-            screen={"width": 1920, "height": 1080}
+            screen={"width": 1366, "height": 768}
         )
 
         page = await context.new_page()
 
         await page.goto(URL, wait_until="domcontentloaded", timeout=60000)
 
-        # COOKIE FIX
+        # COOKIE
         for sel in [
             "button:has-text('Accetta e continua')",
             "button:has-text('Accetta')",
@@ -124,40 +133,41 @@ async def estrai_sosfanta(drive, folder_id):
         ]:
             try:
                 await page.locator(sel).first.click(timeout=2000)
-                await page.wait_for_timeout(500)
+                await page.wait_for_timeout(400)
                 break
             except:
                 pass
 
-        # SosFanta fai-da-te refresh fix
+        # attesa stabilizzazione JS (necessario per SosFanta)
         await page.wait_for_timeout(3500)
 
-        # ORA il DOM è quello corretto (desktop)
+        # --- estrazione blocchi EXACT come colab ---
         divs = await page.query_selector_all("div[id]")
 
         blocchi = []
-        for el in divs:
-            _id = await el.get_attribute("id")
-            if _id and re.match(r"^[A-Z]{3}-[A-Z]{3}(-\d+)?$", _id):
-                blocchi.append(_id)
+        for d in divs:
+            dom_id = await d.get_attribute("id")
+            if dom_id and re.match(r"^[A-Z]{3}-[A-Z]{3}(-\d+)?$", dom_id):
+                blocchi.append(dom_id)
 
-        print("BLOCCHI TROVATI:", blocchi)
+        print("Blocchi trovati:", blocchi)
         blocchi = blocchi[:MAX_MATCH]
 
-        # screenshot identici al Colab
+        # screenshot identici al colab
         for idx, dom_id in enumerate(blocchi, start=1):
             try:
                 await page.evaluate(
                     "id => document.getElementById(id).scrollIntoView({block:'center'})",
                     dom_id
                 )
-                await page.wait_for_timeout(600)
+                await page.wait_for_timeout(500)
 
                 raw = os.path.join(OUTPUT_DIR, f"_sos_raw_{idx}.png")
                 final = os.path.join(OUTPUT_DIR, f"sosfanta_{idx}.png")
 
                 await page.locator(f"#{dom_id}").screenshot(path=raw)
 
+                # crop laterale identico a colab
                 img = Image.open(raw)
                 w, h = img.size
                 img.crop((120, 0, w - 120, h)).save(final)
@@ -165,7 +175,7 @@ async def estrai_sosfanta(drive, folder_id):
                 upload_or_replace(drive, folder_id, final)
 
             except Exception as e:
-                print("Errore SosFanta idx", idx, ":", e)
+                print(f"Errore SosFanta idx {idx}:", e)
 
         await browser.close()
 
