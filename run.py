@@ -103,7 +103,7 @@ def drive_upload_or_replace(local_path, name):
 
 
 # ==========================================================
-#  FONTE 1: SosFanta (FIXATO per 0 partite)
+#  FONTE 1: SosFanta 
 # ==========================================================
 async def estrai_screenshots_sosfanta():
     FONTE = "Sos Fanta"
@@ -241,7 +241,7 @@ async def estrai_screenshots_sosfanta():
         await browser.close()
     
 # ==========================================================
-#  FONTE 2: Fantacalcio (SOLUZIONE FINALE STABILE: Pulizia DOM Aggressiva + Minimo Timing)
+#  FONTE 2: Fantacalcio (SOLUZIONE DEFINITIVA: Inclusione di Dettagli Specifici)
 # ==========================================================
 import os
 from PIL import Image, ImageOps 
@@ -264,11 +264,11 @@ async def estrai_screenshots_fantacalcio():
         )
         # Timeout massimo di 30s per tutte le azioni
         context = await browser.new_context(
-            viewport={"width":1600,"height":4000},
+            viewport={"width":1600,"height":6000}, # Aumento l'altezza del viewport per contenere i nuovi blocchi
             timeout=30000 
         )
         page = await context.new_page()
-        # Tempo massimo per la navigazione a 30s (non 90s)
+        # Tempo massimo per la navigazione
         await page.goto(URL, wait_until="domcontentloaded", timeout=30000) 
 
         # Gestione cookie/privacy
@@ -286,20 +286,15 @@ async def estrai_screenshots_fantacalcio():
             }
         """)
         
-        # 🎯 PULIZIA DOM ESTREMA (Risolve immagine sporca in modo definitivo)
-        # Rimuoviamo ogni elemento che non sia la formazione per garantire output pulito.
+        # 🎯 PULIZIA DOM MIRATA
+        # Rimuoviamo SOLO gli elementi ESTERNI indesiderati che non sono le sezioni richieste.
         await page.evaluate("""
             () => {
                 const unwantedSelectors = [
                     // Elementi strutturali e pubblicitari
                     'header', 'footer', '.ad-box', '.promo-box', '.social-share', 
                     '.bg-light-yellow', '.bg-dark', '.fc-page-content > h2',
-                    // Elementi sotto le formazioni che sporcano l'output
-                    '.match-container-info-v2', 
-                    '.presentazione-squadre',
-                    '.dettaglio-calciatori',
-                    '.sezione-probabili-match', 
-                    // Elementi all'interno del match-item che non sono le formazioni
+                    // Elementi all'interno del match-item che sono sempre da rimuovere
                     '.d-none.d-sm-block',
                 ];
                 unwantedSelectors.forEach(sel => {
@@ -310,10 +305,7 @@ async def estrai_screenshots_fantacalcio():
             }
         """)
         
-        # 🎯 ZERO ATTESE DI BLOCCO
         # Ci affidiamo al timeout di navigazione di 30s per il caricamento.
-        
-        # Usiamo query_selector_all che è più veloce di locator.all()
         matches = await page.query_selector_all("li.match.match-item")
         print(f"🔎 Fantacalcio: trovate {len(matches)} partite")
 
@@ -322,7 +314,7 @@ async def estrai_screenshots_fantacalcio():
             match_txt = f"Match {idx}"
             
             try:
-                # Scroll per forzare la visibilità nel viewport e permettere lo screenshot
+                # Scroll per forzare la visibilità nel viewport
                 await match_box.scroll_into_view_if_needed()
                 await page.wait_for_timeout(500)
                 
@@ -336,6 +328,7 @@ async def estrai_screenshots_fantacalcio():
                     match_txt = f"{home} - {away}"
 
                 # CATTURA: Screenshot sul blocco intero (li.match.match-item)
+                # Il blocco ora include Formazioni, Note e Grafici.
                 final_filename = f"fantacalcio_{idx}.png"
                 final_path = final_filename
                 
@@ -372,7 +365,7 @@ async def estrai_screenshots_fantacalcio():
         print("ℹ️ Nessuna riga scritta per Fantacalcio.")
 
 # ==========================================================
-#  FONTE 3: Gazzetta.it — versione stabile 9:16 optimized (Log puliti)
+#  FONTE 3: Gazzetta.it 
 # ==========================================================
 async def block_privacy_requests(route):
     url = route.request.url
