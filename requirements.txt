@@ -4,3 +4,5 @@ nest-asyncio
 Pillow
 google-auth
 google-api-python-client
+gspread
+httplib2
