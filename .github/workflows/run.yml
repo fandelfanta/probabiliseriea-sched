@@ -1,13 +1,7 @@
-name: Esecuzione Upload Probabili
+name: Esecuzione Scraper Probabili
 
 on:
   workflow_dispatch:
-  # Se in futuro vuoi riattivare la schedulazione, riabilita e regola in UTC:
-  # schedule:
-  #   - cron: "0 5-22 * * 1-3"
-  #   - cron: "*/30 5-22 * * 4"
-  #   - cron: "*/10 5-22 * * 5,6"
-  #   - cron: "*/30 5-22 * * 0"
 
 jobs:
   run-script:
@@ -25,38 +19,16 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
+          playwright install --with-deps chromium
 
-      - name: Decode Google credentials (B64 -> credentials.json)
-        shell: bash
+      - name: Decode Google credentials
         env:
           GOOGLE_CREDENTIALS_B64: ${{ secrets.GOOGLE_CREDENTIALS_B64 }}
         run: |
-          if [ -z "${GOOGLE_CREDENTIALS_B64}" ]; then
-            echo "❌ Manca il secret GOOGLE_CREDENTIALS_B64"; exit 1
-          fi
           echo "${GOOGLE_CREDENTIALS_B64}" | base64 -d > credentials.json
-          echo "Credenziali decodificate."
-          echo "credentials.json size: $(wc -c < credentials.json) bytes"
 
-      - name: Elenco PNG presenti (debug)
-        shell: bash
-        run: |
-          echo "PNG trovate nel workspace:"
-          shopt -s globstar nullglob
-          arr=( **/*.png )
-          if [ ${#arr[@]} -eq 0 ]; then
-            echo "  (nessun file .png trovato)"
-          else
-            printf '  - %s\n' "${arr[@]}"
-          fi
-
-      - name: Run uploader
-        shell: bash
+      - name: Run scraper
         env:
-          GOOGLE_APPLICATION_CREDENTIALS: ${{ github.workspace }}/credentials.json
           DRIVE_FOLDER_URL: ${{ secrets.DRIVE_FOLDER_URL }}
-          # se ti serve diverso, cambialo:
-          IMAGE_GLOB: "**/*.png"
         run: |
-          echo "Esecuzione uploader.py"
-          python uploader.py
+          python run.py
