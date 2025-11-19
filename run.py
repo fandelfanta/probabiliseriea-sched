@@ -241,7 +241,7 @@ async def estrai_screenshots_sosfanta():
         await browser.close()
     
 # ==========================================================
-#  FONTE 2: Fantacalcio (SOLUZIONE ESTREMA FREE: Network Interception + Timeout 60s + Minimal)
+#  FONTE 2: Fantacalcio (SOLUZIONE FINALE FREE: Ricerca Mirata + Network Interception)
 # ==========================================================
 import os
 from PIL import Image, ImageOps 
@@ -267,12 +267,11 @@ async def estrai_screenshots_fantacalcio():
         giornata_val = ""
 
     async with async_playwright() as p:
-        # Aumentato il timeout generale della sessione a 60 secondi
         browser = await p.chromium.launch(
             headless=True, 
             args=["--no-sandbox", "--disable-dev-shm-usage", "--headless=new"]
         )
-        # 🎯 AUMENTO PAZIENZA: Timeout per le operazioni di pagina a 60 secondi
+        # Timeout massimo per le operazioni di pagina
         context = await browser.new_context(
             viewport={"width":1600,"height":6000},
             timeout=60000 
@@ -317,9 +316,8 @@ async def estrai_screenshots_fantacalcio():
             }
         """)
         
-        # ATTESA CRITICA: Aumentata a 60 secondi
+        # ATTESA CRITICA: Sfruttiamo i 60s per garantire che la lista di partite appaia
         try:
-             # Aspettiamo il contenitore generale delle formazioni
              await page.wait_for_selector('li.match.match-item', timeout=60000) 
              print("✅ Contenuto Fantacalcio caricato dopo attesa globale.")
         except Exception as e:
@@ -332,11 +330,11 @@ async def estrai_screenshots_fantacalcio():
         for idx, match_box in enumerate(matches[:MAX_MATCH], start=1):
             lineup_path = None
             notes_path = None
-            final_path = None # Rimosso graphs_path
+            final_path = None
             match_txt = f"Match {idx}"
             
             try:
-                # 🎯 NUOVO: Ricarica il timeout per ogni scroll/azione
+                # Scroll e attesa con timeout di 60s
                 await match_box.scroll_into_view_if_needed(timeout=60000) 
                 await page.wait_for_timeout(500)
                 
@@ -349,8 +347,7 @@ async def estrai_screenshots_fantacalcio():
                     if away == "HEL": away = "VER"
                     match_txt = f"{home} - {away}"
 
-                # CATTURA 1 & 2: Formazione e Note
-                # NOTA: Queste operazioni ora beneficiano del timeout di 60s del context
+                # 🎯 CATTURA MIRATA: Formazione e Note (Colonna 1 e 2)
                 all_cols = await match_box.query_selector_all("div.col-sm-6.col-xs-12")
 
                 lineup_el = all_cols[0] if len(all_cols) >= 1 else None
@@ -420,7 +417,6 @@ async def estrai_screenshots_fantacalcio():
             
             finally:
                 # --- Eliminazione file temporanei locali ---
-                # Rimosso graphs_path
                 for p in [final_path, notes_path, lineup_path]: 
                     if p and os.path.exists(p):
                         os.remove(p)
