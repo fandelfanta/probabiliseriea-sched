@@ -88,44 +88,34 @@ async def estrai_sosfanta(drive, folder_id):
 
     async with async_playwright() as p:
 
-        # Chrome-like HEADLESS (identico a Colab)
         browser = await p.chromium.launch(
-            headless=True,
+            headless=False,    # <<< OBBLIGATORIO
             args=[
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
-                "--disable-gpu",
-                "--enable-webgl",
-                "--ignore-gpu-blacklist",
-                "--use-gl=swiftshader",
-                "--window-size=1366,768",
+                "--ignore-gpu-blocklist",
                 "--disable-background-timer-throttling",
                 "--disable-renderer-backgrounding",
-                "--disable-backgrounding-occluded-windows"
+                "--disable-backgrounding-occluded-windows",
+                "--window-size=1366,768"
             ]
         )
 
-        # Contesto Chrome Desktop reale
         context = await browser.new_context(
             viewport={"width": 1366, "height": 768},
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0 Safari/537.36"
-            ),
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
             is_mobile=False,
             has_touch=False,
             device_scale_factor=1,
-            locale="it-IT",
-            screen={"width": 1366, "height": 768}
+            locale="it-IT"
         )
 
         page = await context.new_page()
 
         await page.goto(URL, wait_until="domcontentloaded", timeout=60000)
 
-        # COOKIE
+        # Cookie handling
         for sel in [
             "button:has-text('Accetta e continua')",
             "button:has-text('Accetta')",
@@ -133,15 +123,13 @@ async def estrai_sosfanta(drive, folder_id):
         ]:
             try:
                 await page.locator(sel).first.click(timeout=2000)
-                await page.wait_for_timeout(400)
+                await page.wait_for_timeout(500)
                 break
             except:
                 pass
 
-        # attesa stabilizzazione JS (necessario per SosFanta)
         await page.wait_for_timeout(3500)
 
-        # --- estrazione blocchi EXACT come colab ---
         divs = await page.query_selector_all("div[id]")
 
         blocchi = []
@@ -153,32 +141,25 @@ async def estrai_sosfanta(drive, folder_id):
         print("Blocchi trovati:", blocchi)
         blocchi = blocchi[:MAX_MATCH]
 
-        # screenshot identici al colab
         for idx, dom_id in enumerate(blocchi, start=1):
-            try:
-                await page.evaluate(
-                    "id => document.getElementById(id).scrollIntoView({block:'center'})",
-                    dom_id
-                )
-                await page.wait_for_timeout(500)
+            await page.evaluate(
+                "id => document.getElementById(id).scrollIntoView({block:'center'})",
+                dom_id
+            )
+            await page.wait_for_timeout(400)
 
-                raw = os.path.join(OUTPUT_DIR, f"_sos_raw_{idx}.png")
-                final = os.path.join(OUTPUT_DIR, f"sosfanta_{idx}.png")
+            raw = os.path.join(OUTPUT_DIR, f"_sos_{idx}.png")
+            final = os.path.join(OUTPUT_DIR, f"sosfanta_{idx}.png")
 
-                await page.locator(f"#{dom_id}").screenshot(path=raw)
+            await page.locator(f"#{dom_id}").screenshot(path=raw)
 
-                # crop laterale identico a colab
-                img = Image.open(raw)
-                w, h = img.size
-                img.crop((120, 0, w - 120, h)).save(final)
+            img = Image.open(raw)
+            w, h = img.size
+            img.crop((120, 0, w - 120, h)).save(final)
 
-                upload_or_replace(drive, folder_id, final)
-
-            except Exception as e:
-                print(f"Errore SosFanta idx {idx}:", e)
+            upload_or_replace(drive, folder_id, final)
 
         await browser.close()
-
 
 # ===========================================
 # FANTACALCIO – IDENTICO AL COLAB (versione semplificata, MA ORIGINALE)
