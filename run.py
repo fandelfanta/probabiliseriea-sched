@@ -51,47 +51,59 @@ async def block_privacy_requests(route):
 
 
 # ==========================================================
-#  FONTE 1: SosFanta (Aggiornato)
+#  FONTE 1: SosFanta (Aggiornato per GitHub Actions)
 # ==========================================================
 async def estrai_screenshots_sosfanta():
     FONTE = "Sos Fanta"
     URL = "https://www.sosfanta.com/lista-formazioni/probabili-formazioni-serie-a/"
-    # La lista rows e l'uso di ws.update sono stati rimossi.
+    # Rimosso: rows = [] e tutta la logica di Google Sheets
 
     async with async_playwright() as p:
-        # Aggiunta la patch per i container di Playwright in ambiente headless
         browser = await p.chromium.launch(
             headless=True, 
-            args=["--no-sandbox", "--disable-dev-shm-usage", "--headless=new"] # Aggiunto "--headless=new"
+            # AGGIUNTO: "--headless=new" per compatibilità CI/CD
+            args=["--no-sandbox", "--disable-dev-shm-usage", "--headless=new"]
         )
         context = await browser.new_context(viewport={"width":1600,"height":4000})
         page = await context.new_page()
         await page.goto(URL, wait_until="domcontentloaded", timeout=60000)
 
-        # ... (Logica Cookie e Gestione Elementi Mantenuta) ...
-        # COOKIE (linee 106-114)
+        # COOKIE (Mantenuto e reso più robusto con force=True)
         for sel in [
             "button:has-text('Accetta e continua')",
             "button:has-text('Accetta')",
             "text='ACCETTA E CONTINUA'"
         ]:
             try:
-                await page.locator(sel).first.click(timeout=3000)
+                # Usiamo force=True per cliccare anche se coperto da un overlay
+                await page.locator(sel).first.click(timeout=3000, force=True)
                 await page.wait_for_timeout(700)
                 break
             except:
                 pass
 
-        # Mostra tutte le partite (linee 117-124)
+        # Mostra tutte le partite (FIX PER 0 PARTITE)
         try:
-            btn = await page.query_selector(".scheduled-matches__list .match-cell[match='ALL']")
-            if btn:
-                await page.evaluate("b => { b.scrollIntoView({block:'center'}); b.click(); }", btn)
-                await asyncio.sleep(1.2)
-        except:
-            pass
+            selector_all = ".scheduled-matches__list .match-cell[match='ALL']"
+            
+            # 1. Attendiamo che il pulsante 'ALL' sia nel DOM
+            btn = await page.wait_for_selector(selector_all, timeout=10000)
 
-        # Scroll per caricare (linee 127-135)
+            if btn:
+                # 2. Clicchiamo con forza (force=True) per superare problemi di visibilità
+                await btn.click(force=True)
+                print("✅ SosFanta: Cliccato su 'Mostra tutte le partite'.")
+
+                # 3. Attendiamo l'apparizione del primo match ID come conferma (es. CAG-GEN-0)
+                # Questo è cruciale per assicurare che il DOM si sia aggiornato
+                await page.wait_for_selector("div[id*='-0']", timeout=15000) 
+                await asyncio.sleep(1.5) # Attesa extra per il rendering
+
+        except Exception as e:
+            print(f"⚠️ SosFanta errore nel cliccare 'Mostra tutte le partite': {e}")
+            pass # Continuiamo l'esecuzione per vedere cosa trova
+
+        # Scroll per caricare (mantenuto)
         for box in await page.query_selector_all("div[id]"):
             _id = await box.get_attribute("id")
             if not _id or not re.match(r"^[A-Z]{3}-[A-Z]{3}(-\d+)?$", _id):
@@ -99,7 +111,7 @@ async def estrai_screenshots_sosfanta():
             await page.evaluate("el => el.scrollIntoView({block:'center'})", box)
             await asyncio.sleep(1.2)
 
-        # Legge ID partite (linee 138-144)
+        # Legge ID partite
         ids = []
         for el in await page.query_selector_all("div[id]"):
             _id = (await el.get_attribute("id")) or ""
@@ -108,7 +120,6 @@ async def estrai_screenshots_sosfanta():
 
         ids = ids[:MAX_MATCH]
         print(f"🔎 SosFanta: trovate {len(ids)} partite → {ids}")
-        # ... (Logica LOOP PARTITE Mantenuta) ...
 
         # LOOP PARTITE
         for idx, dom_id in enumerate(ids, start=1):
@@ -117,16 +128,13 @@ async def estrai_screenshots_sosfanta():
             if b == "HEL": b = "VER"
             match_txt = f"{a} - {b}"
 
-            # !!! MODIFICA: Pathing Locale (Rimosso /content/) !!!
+            # CORREZIONE PATHING: Uso percorsi relativi
             filename = f"sosfanta_{idx}.png"
-            # I percorsi sono ora relativi alla cartella di esecuzione (repository root)
-            raw_path = f"raw_{filename}"
-            final_path = filename 
+            raw_path = f"raw_{filename}" # Rimosso /content/
+            final_path = f"{filename}"   # Rimosso /content/
 
             try:
-                # ... (Logica JavaScript per pulizia DOM mantenuta) ...
-                
-                # Rimuove header (linee 159-173)
+                # Rimuove header (Logica JS Mantenuta)
                 await page.evaluate("""
                     dom_id => {
                         const box = document.getElementById(dom_id);
@@ -141,7 +149,7 @@ async def estrai_screenshots_sosfanta():
                     }
                 """, dom_id)
 
-                # Reset layout note (linee 175-227)
+                # Reset layout note (Logica JS Mantenuta)
                 await page.evaluate("""
                     dom_id => {
                         const box = document.getElementById(dom_id);
@@ -200,7 +208,7 @@ async def estrai_screenshots_sosfanta():
                     }
                 """, dom_id)
 
-                # Scroll su box (linee 230-234)
+                # Scroll su box
                 await page.evaluate(
                     "dom_id => document.getElementById(dom_id).scrollIntoView({block:'center'})",
                     dom_id
@@ -218,7 +226,7 @@ async def estrai_screenshots_sosfanta():
                 cropped = img.crop((120, 0, w - 120, h))
                 cropped.save(final_path)
 
-                # !!! Rimosso: Upload a Drive e Aggiornamento Foglio (linee 247-248) !!!
+                # Rimosso: Upload a Drive e Aggiornamento Foglio
                 print(f"✅ SosFanta | {match_txt} → {filename} (Salvato localmente)")
 
             except Exception as e:
@@ -227,8 +235,7 @@ async def estrai_screenshots_sosfanta():
         await context.close()
         await browser.close()
 
-    # Rimosso l'aggiornamento finale del foglio (linee 254-257)
-
+    # Rimosso l'aggiornamento finale del foglio
 
 # ==========================================================
 #  FONTE 2: Fantacalcio (Aggiornato)
