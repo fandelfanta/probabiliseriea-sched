@@ -241,7 +241,7 @@ async def estrai_screenshots_sosfanta():
         await browser.close()
     
 # ==========================================================
-#  FONTE 2: Fantacalcio (FIX FINALE: TEMPISTICA + Selezione per Indice + Unione PIL)
+#  FONTE 2: Fantacalcio (FIX FINALE ROBUSTO: TEMPISTICA + Selezione per Indice + Unione PIL)
 # ==========================================================
 import os
 from PIL import Image, ImageOps 
@@ -275,7 +275,7 @@ async def estrai_screenshots_fantacalcio():
             }
         """)
         
-        # Pulizia globale DOM (rimozione elementi non voluti, essenziale per output pulito)
+        # Pulizia globale DOM
         await page.evaluate("""
             () => {
                 const unwantedSelectors = [
@@ -293,8 +293,7 @@ async def estrai_screenshots_fantacalcio():
             }
         """)
         
-        # 🎯 FIX TEMPISTICA: Attesa Globale del Contenuto Dinamico
-        # Questo risolve l'errore di Timeout 5000ms.
+        # 🎯 FIX TEMPISTICA: Attesa Globale (20 secondi per il contenuto dinamico)
         try:
              await page.wait_for_selector('div.col-sm-6.col-xs-12', timeout=20000)
              print("✅ Contenuto Fantacalcio caricato dopo attesa globale.")
@@ -311,7 +310,6 @@ async def estrai_screenshots_fantacalcio():
             match_txt = f"Match {idx}"
             
             try:
-                # Scroll per forzare la visibilità e il rendering
                 await match_box.scroll_into_view_if_needed()
                 await page.wait_for_timeout(700)
                 
@@ -324,7 +322,7 @@ async def estrai_screenshots_fantacalcio():
                     if away == "HEL": away = "VER"
                     match_txt = f"{home} - {away}"
 
-                # SELEZIONE ROBUSTA: Per indice (risolve "Formazione non trovata")
+                # SELEZIONE ROBUSTA: Per indice
                 await match_box.wait_for_selector("div.col-sm-6.col-xs-12", timeout=3000)
                 
                 all_cols = await match_box.query_selector_all("div.col-sm-6.col-xs-12")
@@ -346,7 +344,6 @@ async def estrai_screenshots_fantacalcio():
                 notes_img = None
                 if notes_el:
                     notes_path = f"fantacalcio_{idx}_notes.png"
-                    # Rimuove l'intestazione H2 della sezione News per pulizia
                     await notes_el.evaluate("""(el) => {
                         const title = el.querySelector('h2');
                         if (title) title.remove();
@@ -355,7 +352,7 @@ async def estrai_screenshots_fantacalcio():
                     notes_img = Image.open(notes_path)
                     
                 # ======================================================
-                #     UNIONE IMMAGINI (PIL) - Essenziale per output pulito (risolve immagine sporca)
+                #     UNIONE IMMAGINI (PIL)
                 # ======================================================
                 
                 bianco = (255, 255, 255) 
@@ -392,7 +389,7 @@ async def estrai_screenshots_fantacalcio():
                 # --- UPLOAD SU DRIVE ---
                 link = drive_upload_or_replace(final_path, final_filename)
                 
-                # FIX GIORNATA (risolve 'GIORNATA' is not defined)
+                # FIX GIORNATA
                 rows.append([FONTE, "", idx, match_txt, link]) 
                 print(f"✅ Fantacalcio | {match_txt} → {final_filename} (Salvato su Drive) → {link}")
                 
@@ -410,7 +407,6 @@ async def estrai_screenshots_fantacalcio():
 
     if rows:
         all_vals = ws.get_all_values()
-        # La logica per trovare l'inizio della sezione Fantacalcio nel foglio
         start = next(i for i, r in enumerate(all_vals, start=1) if i > 1 and r[0] == "Fantacalcio")
         ws.update(range_name=f"A{start}:E{start+len(rows)-1}", values=rows)
         print(f"🟢 Foglio aggiornato (Fantacalcio): {len(rows)} righe.")
