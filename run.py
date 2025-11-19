@@ -241,7 +241,7 @@ async def estrai_screenshots_sosfanta():
         await browser.close()
     
 # ==========================================================
-#  FONTE 2: Fantacalcio (SOLUZIONE FINALE FREE: Pausa Aggressiva + Ricerca Mirata)
+#  FONTE 2: Fantacalcio (SOLUZIONE FINALE FREE: Pulizia Estrema Immagini + Cattura Mirata)
 # ==========================================================
 import os
 from PIL import Image, ImageOps 
@@ -300,13 +300,21 @@ async def estrai_screenshots_fantacalcio():
             }
         """)
         
-        # Pulizia DOM di elementi non correlati ai match
+        # 🎯 PULIZIA DOM ESTREMA: RIMUOVIAMO IMMAGINI E GRAFICI (come richiesto)
         await page.evaluate("""
             () => {
                 const unwantedSelectors = [
+                    // Elementi strutturali indesiderati
                     'header', 'footer', '.ad-box', '.promo-box', '.social-share', 
                     '.bg-light-yellow', '.bg-dark', '.fc-page-content > h2',
                     '.d-none.d-sm-block',
+                    'section.mt-4.match-graphs.burn', // RIMOZIONE GRAFICI (come richiesto)
+                    
+                    // 🛑 NUOVO: Rimuoviamo tutte le immagini (sono pesanti per il runner)
+                    'img', 
+                    // Rimuoviamo i contenitori dei loghi o stemmi squadra che potrebbero contenere le immagini
+                    '.team-logo-container', 
+                    '.team-logo-small',
                 ];
                 unwantedSelectors.forEach(sel => {
                     document.querySelectorAll(sel).forEach(el => {
@@ -328,18 +336,12 @@ async def estrai_screenshots_fantacalcio():
         print(f"🔎 Fantacalcio: trovate {len(matches)} partite")
 
         for idx, match_box in enumerate(matches[:MAX_MATCH], start=1):
-            lineup_path = None
-            notes_path = None
             final_path = None
             match_txt = f"Match {idx}"
             
             try:
                 # Scroll e attesa con timeout di 60s
                 await match_box.scroll_into_view_if_needed(timeout=60000) 
-                
-                # 🎯 PAUSA CRITICA: Diamo 5 secondi di lavoro alla CPU del runner per renderizzare la formazione
-                print(f"⏳ Pausa di 5 secondi per permettere la renderizzazione di {match_txt}...")
-                await page.wait_for_timeout(5000) 
                 
                 # Nomi squadre per il log
                 team_names = await match_box.query_selector_all("h3.h6.team-name")
@@ -350,63 +352,24 @@ async def estrai_screenshots_fantacalcio():
                     if away == "HEL": away = "VER"
                     match_txt = f"{home} - {away}"
 
-                # CATTURA MIRATA: Formazione e Note (Colonna 1 e 2)
-                all_cols = await match_box.query_selector_all("div.col-sm-6.col-xs-12")
-
-                lineup_el = all_cols[0] if len(all_cols) >= 1 else None
-                notes_el = all_cols[1] if len(all_cols) >= 2 else None
-
-                if not lineup_el:
-                    print(f"🛑 Fantacalcio: Formazione non trovata per {match_txt}, salto.")
+                # CATTURA MIRATA: sul div che contiene le due colonne (Formazione + Note)
+                target_container = await match_box.query_selector("div.match-container-info")
+                
+                if not target_container:
+                    print(f"🛑 Fantacalcio: Contenitore Formazione non trovato per {match_txt}, salto.")
                     continue
                 
-                # Screenshot Lineup (Colonna 1)
-                lineup_path = f"fantacalcio_{idx}_lineup.png"
-                await lineup_el.screenshot(path=lineup_path) 
-                lineup_img = Image.open(lineup_path)
-                
-                # Screenshot Notes (Colonna 2)
-                notes_img = None
-                if notes_el:
-                    notes_path = f"fantacalcio_{idx}_notes.png"
-                    await notes_el.evaluate("""(el) => {
-                        const title = el.querySelector('h2');
-                        if (title) title.remove();
-                    }""")
-                    await notes_el.screenshot(path=notes_path)
-                    notes_img = Image.open(notes_path)
-                    
-                
-                # ======================================================
-                #     UNIONE IMMAGINI (PIL) - SOLO LINEUP E NOTE
-                # ======================================================
-                
-                bianco = (255, 255, 255) 
-                
-                base_width = lineup_img.width
-                if notes_img and notes_img.width > base_width: base_width = notes_img.width
-                
-                gap = 20 
-                
-                total_height = lineup_img.height + (gap + notes_img.height if notes_img else 0)
-                
-                combined = Image.new("RGB", (base_width, total_height), bianco)
-                
-                y = 0
-                
-                # 1. Formazione
-                combined.paste(lineup_img, (0, y)); y += lineup_img.height
-
-                # 2. Note
-                if notes_img:
-                    y += gap
-                    combined.paste(notes_img, (0, y)); 
-                
-                combined = ImageOps.expand(combined, border=(20, 20, 20, 20), fill=bianco)
-
                 final_filename = f"fantacalcio_{idx}.png"
                 final_path = final_filename
-                combined.save(final_path)
+                
+                # Eseguiamo lo screenshot direttamente sul contenitore Formazione+Note
+                await target_container.screenshot(path=final_path) 
+                
+                # --- BORDO BIANCO (Operazione PIL) ---
+                img = Image.open(final_path)
+                bianco = (255, 255, 255)
+                img = ImageOps.expand(img, border=(20, 20, 20, 20), fill=bianco)
+                img.save(final_path)
 
                 # --- UPLOAD SU DRIVE ---
                 link = drive_upload_or_replace(final_path, final_filename)
@@ -419,9 +382,8 @@ async def estrai_screenshots_fantacalcio():
             
             finally:
                 # --- Eliminazione file temporanei locali ---
-                for p in [final_path, notes_path, lineup_path]: 
-                    if p and os.path.exists(p):
-                        os.remove(p)
+                if final_path and os.path.exists(final_path):
+                    os.remove(final_path)
 
 
         await context.close(); await browser.close()
