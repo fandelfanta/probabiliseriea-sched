@@ -241,7 +241,7 @@ async def estrai_screenshots_sosfanta():
         await browser.close()
     
 # ==========================================================
-#  FONTE 2: Fantacalcio (SOLUZIONE DEFINITIVA: Cattura blocco intero + Pulizia DOM Aggressiva)
+#  FONTE 2: Fantacalcio (SOLUZIONE FINALE STABILE: Pulizia DOM Aggressiva + Minimo Timing)
 # ==========================================================
 import os
 from PIL import Image, ImageOps 
@@ -262,14 +262,14 @@ async def estrai_screenshots_fantacalcio():
             headless=True, 
             args=["--no-sandbox", "--disable-dev-shm-usage", "--headless=new"]
         )
-        # 🎯 Manteniamo il timeout di 30s sul contesto (per le azioni di click/scroll)
+        # Timeout massimo di 30s per tutte le azioni
         context = await browser.new_context(
             viewport={"width":1600,"height":4000},
             timeout=30000 
         )
         page = await context.new_page()
-        # Aumentiamo il timeout per la navigazione a 90s, vista la lentezza
-        await page.goto(URL, wait_until="domcontentloaded", timeout=90000) 
+        # Tempo massimo per la navigazione a 30s (non 90s)
+        await page.goto(URL, wait_until="domcontentloaded", timeout=30000) 
 
         # Gestione cookie/privacy
         for sel in ["button:has-text('Accetta')", "button:has-text('Accetta e continua')", "text='CONFIRM'", "button:has-text('Confirm')"]:
@@ -286,20 +286,21 @@ async def estrai_screenshots_fantacalcio():
             }
         """)
         
-        # 🎯 PULIZIA DOM ESTREMA (Risolve immagine sporca e include più elementi potenzialmente fastidiosi)
-        # Questa è la chiave per catturare l'intero blocco (li.match.match-item) in modo pulito.
+        # 🎯 PULIZIA DOM ESTREMA (Risolve immagine sporca in modo definitivo)
+        # Rimuoviamo ogni elemento che non sia la formazione per garantire output pulito.
         await page.evaluate("""
             () => {
                 const unwantedSelectors = [
-                    // Pulizia base
-                    'footer', '.ad-box', '.promo-box', '.social-share', 
-                    // Elementi sotto la formazione che sporcano l'output
+                    // Elementi strutturali e pubblicitari
+                    'header', 'footer', '.ad-box', '.promo-box', '.social-share', 
+                    '.bg-light-yellow', '.bg-dark', '.fc-page-content > h2',
+                    // Elementi sotto le formazioni che sporcano l'output
                     '.match-container-info-v2', 
                     '.presentazione-squadre',
                     '.dettaglio-calciatori',
                     '.sezione-probabili-match', 
-                    // Header/Sezioni ingombranti
-                    'header', '.bg-light-yellow', '.bg-dark', '.fc-page-content > h2'
+                    // Elementi all'interno del match-item che non sono le formazioni
+                    '.d-none.d-sm-block',
                 ];
                 unwantedSelectors.forEach(sel => {
                     document.querySelectorAll(sel).forEach(el => {
@@ -309,10 +310,9 @@ async def estrai_screenshots_fantacalcio():
             }
         """)
         
-        # 🎯 ATTESA STABILITÀ GENERALE (senza locator specifico)
-        # Aspettiamo che la lista principale sia piena.
-        await page.wait_for_selector("li.match.match-item", timeout=30000)
-
+        # 🎯 ZERO ATTESE DI BLOCCO
+        # Ci affidiamo al timeout di navigazione di 30s per il caricamento.
+        
         # Usiamo query_selector_all che è più veloce di locator.all()
         matches = await page.query_selector_all("li.match.match-item")
         print(f"🔎 Fantacalcio: trovate {len(matches)} partite")
@@ -322,7 +322,7 @@ async def estrai_screenshots_fantacalcio():
             match_txt = f"Match {idx}"
             
             try:
-                # Scroll e pausa breve
+                # Scroll per forzare la visibilità nel viewport e permettere lo screenshot
                 await match_box.scroll_into_view_if_needed()
                 await page.wait_for_timeout(500)
                 
@@ -335,14 +335,13 @@ async def estrai_screenshots_fantacalcio():
                     if away == "HEL": away = "VER"
                     match_txt = f"{home} - {away}"
 
-                # 🎯 CATTURA: Screenshot sul blocco intero (più stabile da trovare)
-                # La pulizia estrema del DOM garantisce l'output pulito.
+                # CATTURA: Screenshot sul blocco intero (li.match.match-item)
                 final_filename = f"fantacalcio_{idx}.png"
                 final_path = final_filename
                 
                 await match_box.screenshot(path=final_path)
                 
-                # --- BORDO BIANCO (Operazione PIL residua e necessaria) ---
+                # --- BORDO BIANCO (Operazione PIL) ---
                 img = Image.open(final_path)
                 bianco = (255, 255, 255)
                 img = ImageOps.expand(img, border=(20, 20, 20, 20), fill=bianco)
