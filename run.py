@@ -241,7 +241,7 @@ async def estrai_screenshots_sosfanta():
         await browser.close()
     
 # ==========================================================
-#  FONTE 2: Fantacalcio (FIX Screenshot + Selettori Robusti)
+#  FONTE 2: Fantacalcio (FIX Selettori Robusti + Pulizia DOM Aggressiva)
 # ==========================================================
 import os
 from PIL import Image, ImageOps 
@@ -275,15 +275,15 @@ async def estrai_screenshots_fantacalcio():
             }
         """)
         
-        # PASSO CRUCIALE: Rimuove le sezioni indesiderate (Pulizia DOM)
+        # PASSO CRUCIALE 1: Rimuove le sezioni indesiderate (Pulizia DOM Aggressiva)
         await page.evaluate("""
             () => {
                 const unwantedSelectors = [
-                    '.match-container-info-v2', 
-                    '.presentazione-squadre',
-                    '.dettaglio-calciatori',
-                    '.sezione-probabili-match', 
-                    '.match-box-prob-form-footer' // Rimuove eventuali footer nascosti
+                    '.match-container-info-v2', // Header Informazioni partita
+                    '.presentazione-squadre',   // Presentazione squadre
+                    '.dettaglio-calciatori',    // Dettaglio calciatori (tabella finale)
+                    '.sezione-probabili-match', // Sezioni extra in fondo
+                    'footer',                   // Rimuove il footer (potrebbe causare problemi di altezza)
                 ];
                 unwantedSelectors.forEach(sel => {
                     document.querySelectorAll(sel).forEach(el => {
@@ -292,10 +292,13 @@ async def estrai_screenshots_fantacalcio():
                 });
             }
         """)
-        # Forza l'attesa di un elemento chiave della formazione prima di continuare
-        await page.wait_for_selector('li.match.match-item h3.team-name', timeout=10000)
-
-
+        
+        # Attesa di un elemento chiave che assicura che il contenuto sia caricato
+        try:
+            await page.wait_for_selector('li.match.match-item div.match-formazione-container', timeout=15000)
+        except:
+             print("⚠️ Avviso: La formazione potrebbe non essersi caricata in tempo, procedo comunque.")
+        
         matches = await page.query_selector_all("li.match.match-item")
         print(f"🔎 Fantacalcio: trovate {len(matches)} partite")
 
@@ -317,24 +320,28 @@ async def estrai_screenshots_fantacalcio():
                     if away == "HEL": away = "VER"
                     match_txt = f"{home} - {away}"
 
-                # 1. Trova le due parti specifiche (usiamo selettori alternativi più generici)
-                # Tentativo 1: Selettore specifico per il campo di gioco/titolari
-                lineup_el = await match_box.query_selector("div.match-formazione-container")
+                # 1. Trova le due parti specifiche (Formazione e Note)
+                # Formazione (selettore più probabile)
+                lineup_el = await match_box.query_selector("div.match-formazione-container") 
                 
-                # Tentativo 2: Selettore più generico, se il primo fallisce (ma l'elemento deve esserci!)
+                # Se il selettore specifico fallisce, proviamo con un selettore più generico 
+                # che include la formazione visiva, se necessario
                 if not lineup_el:
-                    lineup_el = await match_box.query_selector("div.match-box-prob-form-v2")
-                    if lineup_el:
-                         # Tenta di trovare il blocco formazione completo (campo + panchina/titolari)
-                         lineup_el = await lineup_el.query_selector("div.match-formazione-container")
-
-
+                    print(f"🔄 Tentativo Formazione con selettore alternativo per {match_txt}")
+                    # Questo selettore punta al contenitore immediato di Lineup e Notes
+                    match_box_content = await match_box.query_selector("div.match-box-prob-form-v2")
+                    if match_box_content:
+                        # Cerchiamo il div che contiene il campo da calcio (Lineup)
+                        lineup_el = await match_box_content.query_selector("div.col-sm-6:nth-child(1)")
+                        
+                
+                # Note/News (selettore specifico)
                 notes_el = await match_box.query_selector("div.match-box-prob-form-news-v2")
 
 
                 if not lineup_el:
-                    # Se ancora non trovato, salta e stampa l'errore per il debug
-                    print(f"⚠️ Fantacalcio: Formazione non trovata (Elemento specifico mancante) per {match_txt}, salto.")
+                    # Se ancora non trovato, è un problema reale di rendering del blocco
+                    print(f"🛑 Fantacalcio: Formazione NON TROVATA DOPO TUTTI I TENTATIVI per {match_txt}, salto.")
                     continue
                 
                 # --- Screenshot Lineup (solo la formazione) ---
