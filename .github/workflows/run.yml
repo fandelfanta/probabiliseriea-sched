@@ -3,8 +3,7 @@ name: Run scraper
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 5 * * *"   # esecuzione giornaliera alle 5:00
-    # puoi cambiarla, ma per ora tienila così
+    - cron: "0 5 * * *"
 
 jobs:
   run-scraper:
@@ -14,29 +13,26 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Python
-        uses: actions/setup-python@v5
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libxkbcommon0
+          Xvfb :99 -screen 0 1366x768x24 &
+          echo "DISPLAY=:99" >> $GITHUB_ENV
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
         with:
           python-version: "3.11"
 
-      - name: Install Xvfb
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y xvfb
-          Xvfb :99 -screen 0 1920x1080x24 &
-          echo "DISPLAY=:99" >> $GITHUB_ENV
-
       - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
+        run: pip install -r requirements.txt
 
       - name: Install Playwright browsers
-        run: |
-          playwright install chromium
+        run: playwright install chromium
 
       - name: Run scraper
         env:
           DRIVE_FOLDER_URL: ${{ secrets.DRIVE_FOLDER_URL }}
           GOOGLE_CREDENTIALS_B64: ${{ secrets.GOOGLE_CREDENTIALS_B64 }}
-        run: |
-          python run.py
+        run: python run.py
