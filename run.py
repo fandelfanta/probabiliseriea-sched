@@ -241,7 +241,7 @@ async def estrai_screenshots_sosfanta():
         await browser.close()
     
 # ==========================================================
-#  FONTE 2: Fantacalcio (FIX FINALE ROBUSTO: TEMPISTICA + Selezione per Indice + Unione PIL)
+#  FONTE 2: Fantacalcio (SOLUZIONE AGGRESSIVA: Locator + Pulizia DOM + Fix Variabile)
 # ==========================================================
 import os
 from PIL import Image, ImageOps 
@@ -250,6 +250,12 @@ async def estrai_screenshots_fantacalcio():
     FONTE = "Fantacalcio"
     URL = "https://www.fantacalcio.it/probabili-formazioni-serie-a"
     rows = []
+
+    # FIX VARIABILE: Usiamo "" se GIORNATA non è definito nel contesto
+    try:
+        giornata_val = GIORNATA 
+    except NameError:
+        giornata_val = ""
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(
@@ -275,14 +281,16 @@ async def estrai_screenshots_fantacalcio():
             }
         """)
         
-        # Pulizia globale DOM
+        # Pulizia DOM aggressiva (risolve immagine sporca)
         await page.evaluate("""
             () => {
                 const unwantedSelectors = [
+                    // Elementi sotto la formazione che sporcano l'output
                     '.match-container-info-v2', 
                     '.presentazione-squadre',
                     '.dettaglio-calciatori',
                     '.sezione-probabili-match', 
+                    // Elementi strutturali indesiderati
                     'footer',
                 ];
                 unwantedSelectors.forEach(sel => {
@@ -293,13 +301,15 @@ async def estrai_screenshots_fantacalcio():
             }
         """)
         
-        # 🎯 FIX TEMPISTICA: Attesa Globale (20 secondi per il contenuto dinamico)
+        # 🎯 NUOVA STRATEGIA: Usiamo il locator globale con timeout MASSIMO prima di iniziare il loop.
         try:
-             await page.wait_for_selector('div.col-sm-6.col-xs-12', timeout=20000)
-             print("✅ Contenuto Fantacalcio caricato dopo attesa globale.")
-        except:
-             print("⚠️ ATTENZIONE: Caricamento Fantacalcio non completato entro 20 secondi.")
-        
+             # Attendiamo l'elemento più stabile della formazione.
+             match_boxes = page.locator("li.match.match-item")
+             await match_boxes.first.locator("div.col-sm-6.col-xs-12").wait_for(timeout=25000) # 25 secondi
+             print("✅ Contenuto Fantacalcio caricato dopo attesa di 25 secondi sul primo match.")
+        except Exception as e:
+             print(f"⚠️ ATTENZIONE: Caricamento Fantacalcio non completato entro 25 secondi: {e}. Il loop potrebbe fallire.")
+
         matches = await page.query_selector_all("li.match.match-item")
         print(f"🔎 Fantacalcio: trovate {len(matches)} partite")
 
@@ -310,8 +320,9 @@ async def estrai_screenshots_fantacalcio():
             match_txt = f"Match {idx}"
             
             try:
+                # Scroll e pausa breve
                 await match_box.scroll_into_view_if_needed()
-                await page.wait_for_timeout(700)
+                await page.wait_for_timeout(500)
                 
                 # Nomi squadre per il log
                 team_names = await match_box.query_selector_all("h3.h6.team-name")
@@ -322,10 +333,14 @@ async def estrai_screenshots_fantacalcio():
                     if away == "HEL": away = "VER"
                     match_txt = f"{home} - {away}"
 
-                # SELEZIONE ROBUSTA: Per indice
-                await match_box.wait_for_selector("div.col-sm-6.col-xs-12", timeout=3000)
+                # SELEZIONE ROBUSTA CON LOCATOR + ATTESA BREVE
+                # Usiamo i locator annidati che riprovano automaticamente
+                all_cols_locator = match_box.locator("div.col-sm-6.col-xs-12")
                 
-                all_cols = await match_box.query_selector_all("div.col-sm-6.col-xs-12")
+                # Attesa breve, ma l'attesa globale di 25s è il vero salvavita
+                await all_cols_locator.first.wait_for(state="attached", timeout=1500)
+                
+                all_cols = await all_cols_locator.all()
 
                 lineup_el = all_cols[0] if len(all_cols) >= 1 else None
                 notes_el = all_cols[1] if len(all_cols) >= 2 else None
@@ -337,13 +352,15 @@ async def estrai_screenshots_fantacalcio():
                 
                 # --- Screenshot Lineup ---
                 lineup_path = f"fantacalcio_{idx}_lineup.png"
-                await lineup_el.screenshot(path=lineup_path)
+                # Screenshot su ElementHandle (più preciso)
+                await lineup_el.screenshot(path=lineup_path) 
                 lineup_img = Image.open(lineup_path)
                 
                 # --- Screenshot Notes ---
                 notes_img = None
                 if notes_el:
                     notes_path = f"fantacalcio_{idx}_notes.png"
+                    # Pulizia: rimuove l'intestazione H2 della sezione News
                     await notes_el.evaluate("""(el) => {
                         const title = el.querySelector('h2');
                         if (title) title.remove();
@@ -352,7 +369,7 @@ async def estrai_screenshots_fantacalcio():
                     notes_img = Image.open(notes_path)
                     
                 # ======================================================
-                #     UNIONE IMMAGINI (PIL)
+                #     UNIONE IMMAGINI (PIL) - Essenziale per output pulito
                 # ======================================================
                 
                 bianco = (255, 255, 255) 
@@ -389,8 +406,7 @@ async def estrai_screenshots_fantacalcio():
                 # --- UPLOAD SU DRIVE ---
                 link = drive_upload_or_replace(final_path, final_filename)
                 
-                # FIX GIORNATA
-                rows.append([FONTE, "", idx, match_txt, link]) 
+                rows.append([FONTE, giornata_val, idx, match_txt, link]) 
                 print(f"✅ Fantacalcio | {match_txt} → {final_filename} (Salvato su Drive) → {link}")
                 
             except Exception as e:
