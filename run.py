@@ -241,7 +241,7 @@ async def estrai_screenshots_sosfanta():
         await browser.close()
     
 # ==========================================================
-#  FONTE 2: Fantacalcio (SOLUZIONE DEFINITIVA: Intercettazione Rete + 3 Screenshot + PIL)
+#  FONTE 2: Fantacalcio (SOLUZIONE ESTREMA FREE: Network Interception + Timeout 60s + Minimal)
 # ==========================================================
 import os
 from PIL import Image, ImageOps 
@@ -251,7 +251,8 @@ BLOCKED_RESOURCES = ["image", "stylesheet", "font", "media", "other", "script"]
 BLOCKED_URLS = [
     "googletagmanager.com", "google-analytics.com", "adservice.google", "cdn.ampproject.org",
     "adsystem.com", "doubleclick.net", "facebook.com", "twitter.com",
-    "adform.net", "criteo.com", "pubmatic.com", "rubiconproject.com", "amazon-adsystem.com"
+    "adform.net", "criteo.com", "pubmatic.com", "rubiconproject.com", "amazon-adsystem.com",
+    "googlesyndication.com", "consent.google", "gvt1.com",
 ]
 
 async def estrai_screenshots_fantacalcio():
@@ -266,22 +267,24 @@ async def estrai_screenshots_fantacalcio():
         giornata_val = ""
 
     async with async_playwright() as p:
+        # Aumentato il timeout generale della sessione a 60 secondi
         browser = await p.chromium.launch(
             headless=True, 
             args=["--no-sandbox", "--disable-dev-shm-usage", "--headless=new"]
         )
+        # 🎯 AUMENTO PAZIENZA: Timeout per le operazioni di pagina a 60 secondi
         context = await browser.new_context(
             viewport={"width":1600,"height":6000},
-            timeout=30000 
+            timeout=60000 
         )
         page = await context.new_page()
 
-        # 🎯 NUOVO FIX: INTERCETTAZIONE DI RETE
+        # FIX: INTERCETTAZIONE DI RETE (Blocca risorse per liberare CPU)
         await page.route("**/*", lambda route: route.abort() if (
             route.request.resource_type in BLOCKED_RESOURCES and route.request.resource_type != "document"
         ) or any(blocked in route.request.url for blocked in BLOCKED_URLS) else route.continue_())
         
-        await page.goto(URL, wait_until="domcontentloaded", timeout=30000) 
+        await page.goto(URL, wait_until="domcontentloaded", timeout=60000) 
 
         # Gestione cookie/privacy
         for sel in ["button:has-text('Accetta')", "button:has-text('Accetta e continua')", "text='CONFIRM'", "button:has-text('Confirm')"]:
@@ -314,26 +317,27 @@ async def estrai_screenshots_fantacalcio():
             }
         """)
         
-        # 🎯 ATTESA CRITICA: Sfruttiamo i 30s per garantire che il contenuto appaia
+        # ATTESA CRITICA: Aumentata a 60 secondi
         try:
              # Aspettiamo il contenitore generale delle formazioni
-             await page.wait_for_selector('li.match.match-item', timeout=30000) 
+             await page.wait_for_selector('li.match.match-item', timeout=60000) 
              print("✅ Contenuto Fantacalcio caricato dopo attesa globale.")
         except Exception as e:
              print(f"⚠️ ATTENZIONE: Caricamento Fantacalcio non completato: {e}. Il loop potrebbe fallire.")
 
+        # Troviamo le partite
         matches = await page.query_selector_all("li.match.match-item")
         print(f"🔎 Fantacalcio: trovate {len(matches)} partite")
 
         for idx, match_box in enumerate(matches[:MAX_MATCH], start=1):
             lineup_path = None
             notes_path = None
-            graphs_path = None
-            final_path = None
+            final_path = None # Rimosso graphs_path
             match_txt = f"Match {idx}"
             
             try:
-                await match_box.scroll_into_view_if_needed()
+                # 🎯 NUOVO: Ricarica il timeout per ogni scroll/azione
+                await match_box.scroll_into_view_if_needed(timeout=60000) 
                 await page.wait_for_timeout(500)
                 
                 # Nomi squadre per il log
@@ -345,7 +349,8 @@ async def estrai_screenshots_fantacalcio():
                     if away == "HEL": away = "VER"
                     match_txt = f"{home} - {away}"
 
-                # 🎯 CATTURA 1 & 2: Formazione e Note (Colonna 1 e 2)
+                # CATTURA 1 & 2: Formazione e Note
+                # NOTA: Queste operazioni ora beneficiano del timeout di 60s del context
                 all_cols = await match_box.query_selector_all("div.col-sm-6.col-xs-12")
 
                 lineup_el = all_cols[0] if len(all_cols) >= 1 else None
@@ -372,29 +377,19 @@ async def estrai_screenshots_fantacalcio():
                     notes_img = Image.open(notes_path)
                     
                 
-                # 🎯 CATTURA 3: Grafici (section.mt-4.match-graphs.burn)
-                graphs_img = None
-                graphs_el = await match_box.query_selector("section.mt-4.match-graphs.burn")
-                
-                if graphs_el:
-                    graphs_path = f"fantacalcio_{idx}_graphs.png"
-                    await graphs_el.screenshot(path=graphs_path)
-                    graphs_img = Image.open(graphs_path)
-
-
                 # ======================================================
-                #     UNIONE IMMAGINI (PIL)
+                #     UNIONE IMMAGINI (PIL) - SOLO LINEUP E NOTE
                 # ======================================================
                 
                 bianco = (255, 255, 255) 
                 
                 base_width = lineup_img.width
                 if notes_img and notes_img.width > base_width: base_width = notes_img.width
-                if graphs_img and graphs_img.width > base_width: base_width = graphs_img.width
                 
                 gap = 20 
                 
-                total_height = lineup_img.height + gap + (notes_img.height if notes_img else 0) + gap + (graphs_img.height if graphs_img else 0)
+                # Calcola l'altezza totale per le 2 sezioni (lineup, notes)
+                total_height = lineup_img.height + (gap + notes_img.height if notes_img else 0)
                 
                 combined = Image.new("RGB", (base_width, total_height), bianco)
                 
@@ -406,12 +401,7 @@ async def estrai_screenshots_fantacalcio():
                 # 2. Note
                 if notes_img:
                     y += gap
-                    combined.paste(notes_img, (0, y)); y += notes_img.height
-                
-                # 3. Grafici
-                if graphs_img:
-                    y += gap
-                    combined.paste(graphs_img, (0, y)); 
+                    combined.paste(notes_img, (0, y)); 
                 
                 combined = ImageOps.expand(combined, border=(20, 20, 20, 20), fill=bianco)
 
@@ -430,7 +420,8 @@ async def estrai_screenshots_fantacalcio():
             
             finally:
                 # --- Eliminazione file temporanei locali ---
-                for p in [final_path, notes_path, lineup_path, graphs_path]:
+                # Rimosso graphs_path
+                for p in [final_path, notes_path, lineup_path]: 
                     if p and os.path.exists(p):
                         os.remove(p)
 
