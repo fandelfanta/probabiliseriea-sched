@@ -240,14 +240,9 @@ async def estrai_screenshots_sosfanta():
         await context.close()
         await browser.close()
     
-
-
 # ==========================================================
 #  FONTE 2: Fantacalcio (FIXED per la rilevazione di due parti)
 # ==========================================================
-# NOTA: Assicurati che 'from PIL import Image, ImageOps' sia presente
-# all'inizio del tuo run.py (se hai usato il mio ultimo script completo, lo è)
-
 async def estrai_screenshots_fantacalcio():
     FONTE = "Fantacalcio"
     URL = "https://www.fantacalcio.it/probabili-formazioni-serie-a"
@@ -261,7 +256,7 @@ async def estrai_screenshots_fantacalcio():
         page = await context.new_page()
         await page.goto(URL, wait_until="domcontentloaded", timeout=60000)
 
-        # cookie/privacy
+        # Gestione cookie/privacy (mantenuta)
         for sel in ["button:has-text('Accetta')", "button:has-text('Accetta e continua')", "text='CONFIRM'", "button:has-text('Confirm')"]:
             try:
                 await page.locator(sel).first.click(timeout=2500, force=True)
@@ -276,6 +271,7 @@ async def estrai_screenshots_fantacalcio():
             }
         """)
 
+        # Seleziona tutti i blocchi partita
         matches = await page.query_selector_all("li.match.match-item")
         print(f"🔎 Fantacalcio: trovate {len(matches)} partite")
 
@@ -295,11 +291,14 @@ async def estrai_screenshots_fantacalcio():
                 else:
                     match_txt = f"Match {idx}"
 
-                # 1. Trova le due parti specifiche all'interno del match_box
-                # La formazione visuale (parte principale)
+                # 1. Trova la FORMAZIONE VISUALE (elemento con classe specifica)
+                # Selettore: div.match-formazione-container (spesso avvolto in .col-xs-12)
                 lineup_el = await match_box.query_selector("div.match-formazione-container")
-                # Le note (infortunati/squalificati/news)
+                
+                # 2. Trova le NOTE/NEWS (infortunati/squalificati/news)
+                # Selettore: il box con le news che ha l'header <h2>News</h2>
                 notes_el = await match_box.query_selector("div.match-box-prob-form-news-v2")
+
 
                 if not lineup_el:
                     print(f"⚠️ Fantacalcio: Formazione non trovata per {match_txt}, salto.")
@@ -323,35 +322,35 @@ async def estrai_screenshots_fantacalcio():
                     notes_img = Image.open(notes_path)
                     
                 # ======================================================
-                #     UNIONE IMMAGINI (PIL) - (Logica di combinazione)
+                #     UNIONE IMMAGINI (PIL)
                 # ======================================================
                 
-                # Parametri per l'unione (Fantacalcio è su sfondo bianco)
                 bianco = (255, 255, 255) 
                 base_width = lineup_img.width
-                gap = 20 # spazio tra formazione e note
+                gap = 20 
                 
-                # Calcola l'altezza totale
                 total_height = lineup_img.height
                 if notes_img:
                     total_height += gap + notes_img.height
                 
                 combined = Image.new("RGB", (base_width, total_height), bianco)
                 
-                # Unisce le immagini
                 y = 0
                 combined.paste(lineup_img, (0, y))
                 
                 if notes_img:
                     y += lineup_img.height
-                    # Blocco di separazione
                     gap_block = Image.new("RGB", (base_width, gap), bianco)
                     combined.paste(gap_block, (0, y)); y += gap
                     
-                    # Incolla le note
-                    combined.paste(notes_img, (0, y))
+                    # Centra le note rispetto alla larghezza base se sono più strette
+                    if notes_img.width < base_width:
+                        x_offset = (base_width - notes_img.width) // 2
+                    else:
+                        x_offset = 0
+                        
+                    combined.paste(notes_img, (x_offset, y))
                 
-                # Padding finale e salvataggio
                 combined = ImageOps.expand(combined, border=(20, 20, 20, 20), fill=bianco)
 
                 final_path = f"fantacalcio_{idx}.png"
@@ -364,6 +363,8 @@ async def estrai_screenshots_fantacalcio():
                 print(f"⚠️ Errore su match {idx}: {e}")
 
         await context.close(); await browser.close()
+
+
 # ==========================================================
 #  FONTE 3: Gazzetta.it — versione stabile 9:16 optimized (Log puliti)
 # ==========================================================
