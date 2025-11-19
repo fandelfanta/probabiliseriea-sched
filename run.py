@@ -241,7 +241,7 @@ async def estrai_screenshots_sosfanta():
         await browser.close()
     
 # ==========================================================
-#  FONTE 2: Fantacalcio (SOLUZIONE FINALE FREE: Pulizia Estrema Immagini + Cattura Mirata)
+#  FONTE 2: Fantacalcio (SOLUZIONE FINALE FREE: Pulizia Estrema + FIX Syntax Error)
 # ==========================================================
 import os
 from PIL import Image, ImageOps 
@@ -271,18 +271,21 @@ async def estrai_screenshots_fantacalcio():
             headless=True, 
             args=["--no-sandbox", "--disable-dev-shm-usage", "--headless=new"]
         )
-        # Timeout massimo per le operazioni di pagina (60 secondi)
+        # Timeout rimosso da new_context per evitare TypeError
         context = await browser.new_context(
-            viewport={"width":1600,"height":6000},
-            timeout=60000 
+            viewport={"width":1600,"height":6000}
         )
         page = await context.new_page()
+        
+        # 🎯 FIX Playwright: Imposta il timeout predefinito a 60 secondi
+        page.set_default_timeout(60000)
 
         # FIX: INTERCETTAZIONE DI RETE (Blocca risorse per liberare CPU)
         await page.route("**/*", lambda route: route.abort() if (
             route.request.resource_type in BLOCKED_RESOURCES and route.request.resource_type != "document"
         ) or any(blocked in route.request.url for blocked in BLOCKED_URLS) else route.continue_())
         
+        # Uso il timeout esplicito per la navigazione
         await page.goto(URL, wait_until="domcontentloaded", timeout=60000) 
 
         # Gestione cookie/privacy
@@ -300,19 +303,15 @@ async def estrai_screenshots_fantacalcio():
             }
         """)
         
-        # 🎯 PULIZIA DOM ESTREMA: RIMUOVIAMO IMMAGINI E GRAFICI (come richiesto)
+        # PULIZIA DOM ESTREMA: Rimuoviamo Immagini e Grafici
         await page.evaluate("""
             () => {
                 const unwantedSelectors = [
-                    // Elementi strutturali indesiderati
                     'header', 'footer', '.ad-box', '.promo-box', '.social-share', 
                     '.bg-light-yellow', '.bg-dark', '.fc-page-content > h2',
                     '.d-none.d-sm-block',
-                    'section.mt-4.match-graphs.burn', // RIMOZIONE GRAFICI (come richiesto)
-                    
-                    // 🛑 NUOVO: Rimuoviamo tutte le immagini (sono pesanti per il runner)
+                    'section.mt-4.match-graphs.burn', 
                     'img', 
-                    // Rimuoviamo i contenitori dei loghi o stemmi squadra che potrebbero contenere le immagini
                     '.team-logo-container', 
                     '.team-logo-small',
                 ];
@@ -324,9 +323,9 @@ async def estrai_screenshots_fantacalcio():
             }
         """)
         
-        # ATTESA CRITICA: Sfruttiamo i 60s per garantire che la lista di partite appaia
+        # ATTESA CRITICA: Ora usa il timeout predefinito di 60s
         try:
-             await page.wait_for_selector('li.match.match-item', timeout=60000) 
+             await page.wait_for_selector('li.match.match-item') 
              print("✅ Contenuto Fantacalcio caricato dopo attesa globale.")
         except Exception as e:
              print(f"⚠️ ATTENZIONE: Caricamento Fantacalcio non completato: {e}. Il loop potrebbe fallire.")
@@ -340,8 +339,8 @@ async def estrai_screenshots_fantacalcio():
             match_txt = f"Match {idx}"
             
             try:
-                # Scroll e attesa con timeout di 60s
-                await match_box.scroll_into_view_if_needed(timeout=60000) 
+                # Scroll: Ora usa il timeout predefinito di 60s
+                await match_box.scroll_into_view_if_needed() 
                 
                 # Nomi squadre per il log
                 team_names = await match_box.query_selector_all("h3.h6.team-name")
@@ -353,6 +352,7 @@ async def estrai_screenshots_fantacalcio():
                     match_txt = f"{home} - {away}"
 
                 # CATTURA MIRATA: sul div che contiene le due colonne (Formazione + Note)
+                # target_container ora ha un timeout implicito di 60s
                 target_container = await match_box.query_selector("div.match-container-info")
                 
                 if not target_container:
@@ -362,7 +362,7 @@ async def estrai_screenshots_fantacalcio():
                 final_filename = f"fantacalcio_{idx}.png"
                 final_path = final_filename
                 
-                # Eseguiamo lo screenshot direttamente sul contenitore Formazione+Note
+                # Eseguiamo lo screenshot
                 await target_container.screenshot(path=final_path) 
                 
                 # --- BORDO BIANCO (Operazione PIL) ---
