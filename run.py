@@ -240,114 +240,66 @@ async def estrai_screenshots_sosfanta():
         await context.close()
         await browser.close()
     
+## ==========================================================
+#  FONTE 2: Fantacalcio
 # ==========================================================
-#  FONTE 2: Fantacalcio (VERS. DEFINITIVA: BLOCCO RETE TOTALE E PULIZIA)
-# ==========================================================
-import os
-
-# BLOCCO RETE TOTALE: BLOCCARE TUTTE LE RISORSE NON CRITICHE
-BLOCKED_RESOURCES = ["image", "stylesheet", "font", "media", "other", "script"]
-BLOCKED_URLS = [
-    "googletagmanager.com", "google-analytics.com", "adservice.google", "cdn.ampproject.org",
-    "doubleclick.net", "adform.net", "criteo.com", "pubmatic.com", "rubiconproject.com", 
-    "amazon-adsystem.com", "googlesyndication.com", "consent.google", "gvt1.com",
-]
-
 async def estrai_screenshots_fantacalcio():
-    FONTE = "Fantacalcio"
-    URL = "https://www.fantacalcio.it/probabili-formazioni-serie-a"
-    rows = [] # FIX: Inizializzazione della variabile 'rows'
-    
-    try:
-        giornata_val = GIORNATA
-    except NameError:
-        giornata_val = ""
+    FONTE = "Fantacalcio"
+    URL = "https://www.fantacalcio.it/probabili-formazioni-serie-a"
 
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=True, 
-            args=["--no-sandbox", "--disable-dev-shm-usage", "--headless=new"]
-        )
-        context = await browser.new_context(viewport={"width":1600,"height":6000}) 
-        page = await context.new_page()
-        
-        # OTTIMIZZAZIONE CRITICA 1: Timeout globale di 60 secondi
-        page.set_default_timeout(60000) 
-        
-        # OTTIMIZZAZIONE CRITICA 2: Blocco Rete Aggressivo
-        await page.route("**/*", lambda route: route.abort() if (
-            route.request.resource_type in BLOCKED_RESOURCES and route.request.resource_type != "document"
-        ) or any(blocked in route.request.url for blocked in BLOCKED_URLS) else route.continue_())
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(
+            headless=True, 
+            args=["--no-sandbox", "--disable-dev-shm-usage", "--headless=new"]
+        )
+        context = await browser.new_context(viewport={"width":1600,"height":4000})
+        page = await context.new_page()
+        await page.goto(URL, wait_until="domcontentloaded", timeout=60000)
 
-        # Navigazione (usa il default di 60s)
-        await page.goto(URL, wait_until="domcontentloaded") 
-
-        # cookie/privacy
-        for sel in ["button:has-text('Accetta')", "button:has-text('Accetta e continua')"]:
-            try:
-                await page.locator(sel).first.click(timeout=2500, force=True)
-                await page.wait_for_timeout(600)
-                break
-            except: pass
-            
-        # PULIZIA DOM
-        await page.evaluate("""
-            () => {
-                // Rimuovi pubblicità e elementi non necessari
-                document.querySelectorAll('.ad-box, .banner, footer, header').forEach(e => e.remove());
-                // Rimuovi popup e dialog
-                document.querySelectorAll('[role="dialog"], .fc-consent-root, .modal, .popup').forEach(e=>e.remove());
-                // Permetti lo scroll
+        # cookie/privacy
+        for sel in ["button:has-text('Accetta')", "button:has-text('Accetta e continua')", "text='CONFIRM'", "button:has-text('Confirm')"]:
+            try:
+                await page.locator(sel).first.click(timeout=2500, force=True)
+                await page.wait_for_timeout(600)
+                break
+            except: pass
+        await page.evaluate("""
+            () => {
                 document.documentElement.style.overflow='auto';
-                document.body.style.overflow='auto';
-            }
-        """)
+                document.body.style.overflow='auto';
+                document.querySelectorAll('[role="dialog"], .fc-consent-root, .modal, .popup').forEach(e=>e.remove());
+            }
+        """)
 
-        # Attesa dei risultati (usa timeout 60s)
-        await page.wait_for_selector('li.match.match-item')
-        print("✅ Contenuto Fantacalcio caricato dopo attesa globale.")
+        matches = await page.query_selector_all("li.match.match-item")
+        print(f"🔎 Fantacalcio: trovate {len(matches)} partite")
 
-        matches = await page.query_selector_all("li.match.match-item")
-        print(f"🔎 Fantacalcio: trovate {len(matches)} partite")
-
-        for idx, match in enumerate(matches[:MAX_MATCH], start=1):
-            path = None
-            try:
-                await match.scroll_into_view_if_needed()
-                await page.wait_for_timeout(700)
-                
-                team_names = await match.query_selector_all("h3.h6.team-name")
-                if len(team_names) >= 2:
-                    home = (await team_names[0].inner_text()).strip()[:3].upper()
-                    away = (await team_names[1].inner_text()).strip()[:3].upper()
-                    if home == "HEL": home = "VER"
-                    if away == "HEL": away = "VER"
-                    match_txt = f"{home} - {away}"
-                else:
-                    match_txt = f"Match {idx}"
-
-                filename = f"fantacalcio_{idx}.png"
-                path = f"{filename}"
-
-                # Cattura il blocco intero della partita
-                await match.screenshot(path=path)
-                link = drive_upload_or_replace(path, filename)
+        for idx, match in enumerate(matches[:MAX_MATCH], start=1):
+            try:
+                await match.scroll_into_view_if_needed()
+                await page.wait_for_timeout(700)
                 
-                # Aggiunta riga alla lista
-                rows.append([FONTE, giornata_val, idx, match_txt, link])
-                
-                print(f"✅ Fantacalcio | {match_txt} → {filename} (Salvato su Drive) → {link}") 
+                team_names = await match.query_selector_all("h3.h6.team-name")
+                if len(team_names) >= 2:
+                    home = (await team_names[0].inner_text()).strip()[:3].upper()
+                    away = (await team_names[1].inner_text()).strip()[:3].upper()
+                    if home == "HEL": home = "VER"
+                    if away == "HEL": away = "VER"
+                    match_txt = f"{home} - {away}"
+                else:
+                    match_txt = f"Match {idx}"
 
-            except Exception as e:
-                print(f"⚠️ Errore su match {idx}: {e}")
-            
-            finally:
-                # FIX: Rimuovi il file locale dopo l'upload
-                if path and os.path.exists(path):
-                    os.remove(path)
+                filename = f"fantacalcio_{idx}.png"
+                path = f"{filename}"
 
+                await match.screenshot(path=path)
+                link = drive_upload_or_replace(path, filename)
+                print(f"✅ Fantacalcio | {match_txt} → {filename} (Salvato su Drive) → {link}") # Log unificato
 
-        await context.close(); await browser.close()
+            except Exception as e:
+                print(f"⚠️ Errore su match {idx}: {e}")
+
+        await context.close(); await browser.close()
 
     # Aggiornamento Foglio
     if rows:
