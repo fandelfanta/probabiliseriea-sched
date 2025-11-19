@@ -571,8 +571,8 @@ async def estrai_screenshots_gazzetta():
 # ==========================================================
 async def aggiorna_tutte_le_fonti():
     await estrai_screenshots_sosfanta()
-    await estrai_screenshots_fantacalcio()
     await estrai_screenshots_gazzetta()
+    await estrai_screenshots_fantacalcio()  
 
 # ==========================================================
 #  ESECUZIONE PRINCIPALE
