@@ -1,42 +1,51 @@
-name: Esegui Scraper Schedulato
+name: Esegui Scraper Probabili Formazioni
 
+# 1. Trigger del Workflow
 on:
-  # Rimuovi temporaneamente 'schedule' o lascialo, ma usa 'workflow_dispatch'
-  # schedule: 
-  #   - cron: '0 8 * * *' 
+  # Rimosso il trigger 'schedule' per ora, così puoi lanciarlo manualmente
+  # Usa 'workflow_dispatch' per permettere l'esecuzione manuale dalla scheda Actions
   workflow_dispatch:
 
 jobs:
   run_scraper:
+    # Esegue il job sul runner Linux (ubuntu-latest)
     runs-on: ubuntu-latest
-    timeout-minutes: 15 # Aumenta il timeout se lo scraping è lungo
+    # Imposta un timeout massimo di 15 minuti per il job (utile per lo scraping)
+    timeout-minutes: 15 
 
     steps:
+    # Step 1: Clona il tuo repository sul runner
     - uses: actions/checkout@v4
 
-    # 1. Configurazione Python
+    # Step 2: Configura l'ambiente Python
     - name: Set up Python 3.11
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
 
-    # 2. Installazione delle dipendenze Python (Playwright, Pillow, etc.)
-    - name: Install dependencies
+    # Step 3: Installa le dipendenze Python e i browser di Playwright
+    - name: Install dependencies and Playwright Browsers
       run: |
+        # Installa le dipendenze elencate in requirements.txt (playwright, Pillow, nest-asyncio)
         pip install -r requirements.txt
-        # Questo installa i browser necessari per Playwright nel runner
+        # Installa il browser Chromium necessario per lo scraping
         playwright install chromium 
         
-    # 3. Esecuzione dello script adattato
+    # Step 4: Esecuzione dello script Python consolidato
     - name: Run Python Scraper
+      # Esegue il file run.py che contiene tutta la logica di scraping
       run: python run.py
       
-    # 4. Carica i risultati (immagini) come artefatti di GitHub (OPZIONALE ma CONSIGLIATO)
-    # Senza l'upload a Drive, questo ti permette di scaricare gli screenshot generati
-    - uses: actions/upload-artifact@v4
+    # Step 5 (Opzionale ma Raccomandato): Carica gli screenshot come Artifacts
+    - name: Upload Screenshots Artifact
+      uses: actions/upload-artifact@v4
       with:
-        name: screenshots-${{ github.sha }}
+        # Nome dell'archivio zip da scaricare
+        name: screenshots-risultati
+        # Percorsi dei file da includere nell'archivio
         path: |
           sosfanta_*.png
           fantacalcio_*.png
           gazzetta_*.png
+        # Consente la sovrascrittura nelle successive esecuzioni
+        overwrite: true
