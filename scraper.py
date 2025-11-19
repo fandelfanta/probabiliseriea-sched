@@ -1,13 +1,16 @@
 import os
 import re
+import base64
 import nest_asyncio
 nest_asyncio.apply()
 
 from PIL import Image
+from playwright.async_api import async_playwright
+
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
-from playwright.async_api import async_playwright
+
 
 OUTPUT_DIR = "out"
 MAX_MATCH = 10
@@ -15,6 +18,10 @@ MAX_MATCH = 10
 if not os.path.exists(OUTPUT_DIR):
     os.makedirs(OUTPUT_DIR)
 
+
+# --------------------------
+# Google Drive Upload Helper
+# --------------------------
 
 def upload_or_replace(drive, folder_id, path_file):
     filename = os.path.basename(path_file)
@@ -32,27 +39,167 @@ def upload_or_replace(drive, folder_id, path_file):
         drive.files().update(fileId=file_id, media_body=media).execute()
         print("Aggiornato:", filename)
     else:
-        file_metadata = {"name": filename, "parents": [folder_id]}
+        metadata = {"name": filename, "parents": [folder_id]}
         media = MediaFileUpload(path_file, resumable=True)
-        drive.files().create(body=file_metadata, media_body=media, fields="id").execute()
+        drive.files().create(body=metadata, media_body=media, fields="id").execute()
         print("Caricato:", filename)
 
 
-async def estrai_sosfanta(drive, folder_id):
-    print("\n=== SOSFANTA ===")
+# --------------------------
+# SosFanta
+# --------------------------
 
-    url = "https://www.sosfanta.com/lista-formazioni/probabili-formazioni-serie-a/"
+async def estrai_sosfanta(page, drive, folder_id):
+    print("=== SOSFANTA ===")
+
+    await page.goto(
+        "https://www.sosfanta.com/lista-formazioni/probabili-formazioni-serie-a/",
+        wait_until="domcontentloaded",
+        timeout=60000
+    )
+
+    for sel in [
+        "button:has-text('Accetta e continua')",
+        "button:has-text('Accetta')",
+        "text='Accetta'"
+    ]:
+        try:
+            await page.locator(sel).first.click(timeout=1500)
+            break
+        except:
+            pass
+
+    await page.wait_for_timeout(3500)
+
+    divs = await page.query_selector_all("div[id]")
+
+    ids = []
+    for d in divs:
+        did = await d.get_attribute("id")
+        if did and re.match(r"^[A-Z]{3}-[A-Z]{3}(-\d+)?$", did):
+            ids.append(did)
+
+    print("Partite trovate:", ids)
+
+    for idx, did in enumerate(ids[:MAX_MATCH], start=1):
+
+        await page.evaluate(
+            "id => document.getElementById(id).scrollIntoView({block:'center'})",
+            did
+        )
+        await page.wait_for_timeout(400)
+
+        raw = os.path.join(OUTPUT_DIR, f"_sos_{idx}.png")
+        final = os.path.join(OUTPUT_DIR, f"sosfanta_{idx}.png")
+
+        await page.locator(f"#{did}").screenshot(path=raw)
+
+        img = Image.open(raw)
+        w, h = img.size
+        img.crop((120, 0, w - 120, h)).save(final)
+
+        upload_or_replace(drive, folder_id, final)
+
+
+# --------------------------
+# Fantacalcio
+# --------------------------
+
+async def estrai_fantacalcio(page, drive, folder_id):
+    print("=== FANTACALCIO ===")
+
+    await page.goto(
+        "https://www.fantacalcio.it/probabili-formazioni-serie-a",
+        wait_until="domcontentloaded",
+        timeout=60000
+    )
+
+    await page.wait_for_timeout(3000)
+
+    cards = await page.query_selector_all("div[class*='probabili-formazioni__match-card']")
+
+    print("Match trovati:", len(cards))
+
+    ids = cards[:MAX_MATCH]
+
+    for idx, c in enumerate(ids, start=1):
+        raw = os.path.join(OUTPUT_DIR, f"_fc_{idx}.png")
+        final = os.path.join(OUTPUT_DIR, f"fantacalcio_{idx}.png")
+
+        await c.scroll_into_view_if_needed()
+        await page.wait_for_timeout(300)
+
+        await c.screenshot(path=raw)
+
+        upload_or_replace(drive, folder_id, raw)
+        os.rename(raw, final)
+
+
+# --------------------------
+# Gazzetta
+# --------------------------
+
+async def estrai_gazzetta(page, drive, folder_id):
+    print("=== GAZZETTA ===")
+
+    await page.goto(
+        "https://www.gazzetta.it/Calcio/probabili-formazioni-serie-a/",
+        wait_until="domcontentloaded",
+        timeout=60000
+    )
+
+    await page.wait_for_timeout(3000)
+
+    cards = await page.query_selector_all("section.match-card")
+
+    print("Match trovati:", len(cards))
+
+    ids = cards[:MAX_MATCH]
+
+    for idx, c in enumerate(ids, start=1):
+        raw = os.path.join(OUTPUT_DIR, f"_gaz_{idx}.png")
+        final = os.path.join(OUTPUT_DIR, f"gazzetta_{idx}.png")
+
+        await c.scroll_into_view_if_needed()
+        await page.wait_for_timeout(300)
+
+        await c.screenshot(path=raw)
+
+        upload_or_replace(drive, folder_id, raw)
+        os.rename(raw, final)
+
+
+# --------------------------
+# MAIN
+# --------------------------
+
+async def main():
+    print("=== AVVIO SCRAPER ===")
+
+    # credenziali Google
+    creds_b64 = os.environ["GOOGLE_CREDENTIALS_B64"]
+    decoded = base64.b64decode(creds_b64).decode("utf-8")
+
+    with open("credentials.json", "w") as f:
+        f.write(decoded)
+
+    creds = service_account.Credentials.from_service_account_file(
+        "credentials.json", scopes=["https://www.googleapis.com/auth/drive"]
+    )
+    drive = build("drive", "v3", credentials=creds)
+
+    folder_url = os.environ["DRIVE_FOLDER_URL"]
+    folder_id = folder_url.split("/")[-1]
 
     async with async_playwright() as p:
-
         browser = await p.chromium.launch(
             headless=False,
             args=[
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
-                "--disable-gpu",
                 "--disable-dev-shm-usage",
                 "--ignore-gpu-blocklist",
+                "--disable-gpu",
                 "--window-size=1366,768"
             ]
         )
@@ -65,75 +212,12 @@ async def estrai_sosfanta(drive, folder_id):
         )
 
         page = await context.new_page()
-        await page.goto(url, wait_until="domcontentloaded", timeout=60000)
 
-        # accetta cookie se presenti
-        for sel in [
-            "button:has-text('Accetta e continua')",
-            "button:has-text('Accetta')",
-            "text='Accetta'"
-        ]:
-            try:
-                await page.locator(sel).first.click(timeout=1500)
-                break
-            except:
-                pass
-
-        # SosFanta carica dinamicamente, serve attesa secca
-        await page.wait_for_timeout(3500)
-
-        # Nessuna attesa su selector: prende tutto e filtra
-        divs = await page.query_selector_all("div[id]")
-        ids = []
-
-        for d in divs:
-            did = await d.get_attribute("id")
-            if did and re.match(r"^[A-Z]{3}-[A-Z]{3}(-\d+)?$", did):
-                ids.append(did)
-
-        print("Partite trovate:", ids)
-
-        for idx, did in enumerate(ids[:MAX_MATCH], start=1):
-            await page.evaluate(
-                "id => document.getElementById(id).scrollIntoView({block:'center'})",
-                did
-            )
-            await page.wait_for_timeout(500)
-
-            raw = os.path.join(OUTPUT_DIR, f"_sos_{idx}.png")
-            final = os.path.join(OUTPUT_DIR, f"sosfanta_{idx}.png")
-
-            await page.locator(f"#{did}").screenshot(path=raw)
-
-            img = Image.open(raw)
-            w, h = img.size
-            img.crop((120, 0, w - 120, h)).save(final)
-
-            upload_or_replace(drive, folder_id, final)
+        # ordina esattamente come colab
+        await estrai_sosfanta(page, drive, folder_id)
+        await estrai_fantacalcio(page, drive, folder_id)
+        await estrai_gazzetta(page, drive, folder_id)
 
         await browser.close()
 
-
-async def main():
-    print("=== AVVIO ===")
-
-    creds_json = os.environ["GOOGLE_CREDENTIALS_B64"]
-    creds_bytes = creds_json.encode("utf-8")
-    import base64
-    decoded = base64.b64decode(creds_bytes).decode("utf-8")
-
-    with open("credentials.json", "w") as f:
-        f.write(decoded)
-
-    creds = service_account.Credentials.from_service_account_file(
-        "credentials.json",
-        scopes=["https://www.googleapis.com/auth/drive"]
-    )
-    drive = build("drive", "v3", credentials=creds)
-
-    folder_url = os.environ["DRIVE_FOLDER_URL"]
-    folder_id = folder_url.split("/")[-1]
-
-    await estrai_sosfanta(drive, folder_id)
-
-    print("=== FATTO ===")
+    print("=== COMPLETATO ===")
