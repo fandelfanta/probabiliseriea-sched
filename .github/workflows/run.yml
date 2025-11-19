@@ -25,10 +25,12 @@ jobs:
     # Step 3: Installa le dipendenze Python e i browser di Playwright
     - name: Install dependencies and Playwright Browsers
       run: |
-        # Installa le dipendenze elencate in requirements.txt (playwright, Pillow, nest-asyncio)
+        # Installazione normale
         pip install -r requirements.txt
+        # Installazione esplicita della libreria che gestisce il client Drive (sicurezza)
+        pip install google-api-python-client
         # Installa il browser Chromium necessario per lo scraping
-        playwright install chromium 
+        playwright install chromium
         
     # Step 4: Esecuzione dello script Python consolidato (e autenticazione)
     - name: Run Python Scraper and Upload to Drive
