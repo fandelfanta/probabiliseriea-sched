@@ -241,14 +241,22 @@ async def estrai_screenshots_sosfanta():
         await browser.close()
     
 # ==========================================================
-#  FONTE 2: Fantacalcio (SOLUZIONE DEFINITIVA: 3 Screenshot Specifici + PIL)
+#  FONTE 2: Fantacalcio (SOLUZIONE DEFINITIVA: Intercettazione Rete + 3 Screenshot + PIL)
 # ==========================================================
 import os
 from PIL import Image, ImageOps 
 
+# Lista di tipi di risorse da bloccare (pubblicità, font, tracking, media)
+BLOCKED_RESOURCES = ["image", "stylesheet", "font", "media", "other", "script"]
+BLOCKED_URLS = [
+    "googletagmanager.com", "google-analytics.com", "adservice.google", "cdn.ampproject.org",
+    "adsystem.com", "doubleclick.net", "facebook.com", "twitter.com",
+    "adform.net", "criteo.com", "pubmatic.com", "rubiconproject.com", "amazon-adsystem.com"
+]
+
 async def estrai_screenshots_fantacalcio():
     FONTE = "Fantacalcio"
-    URL = "https://www.www.fantacalcio.it/probabili-formazioni-serie-a"
+    URL = "https://www.fantacalcio.it/probabili-formazioni-serie-a"
     rows = []
 
     # FIX VARIABILE
@@ -262,12 +270,17 @@ async def estrai_screenshots_fantacalcio():
             headless=True, 
             args=["--no-sandbox", "--disable-dev-shm-usage", "--headless=new"]
         )
-        # Timeout massimo di 30s per tutte le azioni (risolve il 5000ms e massimizza l'attesa)
         context = await browser.new_context(
             viewport={"width":1600,"height":6000},
             timeout=30000 
         )
         page = await context.new_page()
+
+        # 🎯 NUOVO FIX: INTERCETTAZIONE DI RETE
+        await page.route("**/*", lambda route: route.abort() if (
+            route.request.resource_type in BLOCKED_RESOURCES and route.request.resource_type != "document"
+        ) or any(blocked in route.request.url for blocked in BLOCKED_URLS) else route.continue_())
+        
         await page.goto(URL, wait_until="domcontentloaded", timeout=30000) 
 
         # Gestione cookie/privacy
@@ -370,12 +383,11 @@ async def estrai_screenshots_fantacalcio():
 
 
                 # ======================================================
-                #     UNIONE IMMAGINI (PIL) - Unione verticale di tutti e tre gli screenshot
+                #     UNIONE IMMAGINI (PIL)
                 # ======================================================
                 
                 bianco = (255, 255, 255) 
                 
-                # Se la Formazione non è la più larga, la usiamo come base
                 base_width = lineup_img.width
                 if notes_img and notes_img.width > base_width: base_width = notes_img.width
                 if graphs_img and graphs_img.width > base_width: base_width = graphs_img.width
