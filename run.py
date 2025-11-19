@@ -241,11 +241,15 @@ async def estrai_screenshots_sosfanta():
         await browser.close()
     
 # ==========================================================
-#  FONTE 2: Fantacalcio (FIXED per la rilevazione di due parti)
+#  FONTE 2: Fantacalcio (FIXED Selettori e Pulizia File)
 # ==========================================================
+import os
+from PIL import Image, ImageOps # Import necessari se non presenti
+
 async def estrai_screenshots_fantacalcio():
     FONTE = "Fantacalcio"
     URL = "https://www.fantacalcio.it/probabili-formazioni-serie-a"
+    rows = []
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(
@@ -256,7 +260,7 @@ async def estrai_screenshots_fantacalcio():
         page = await context.new_page()
         await page.goto(URL, wait_until="domcontentloaded", timeout=60000)
 
-        # Gestione cookie/privacy (mantenuta)
+        # Gestione cookie/privacy
         for sel in ["button:has-text('Accetta')", "button:has-text('Accetta e continua')", "text='CONFIRM'", "button:has-text('Confirm')"]:
             try:
                 await page.locator(sel).first.click(timeout=2500, force=True)
@@ -271,11 +275,13 @@ async def estrai_screenshots_fantacalcio():
             }
         """)
 
-        # Seleziona tutti i blocchi partita
         matches = await page.query_selector_all("li.match.match-item")
         print(f"🔎 Fantacalcio: trovate {len(matches)} partite")
 
         for idx, match_box in enumerate(matches[:MAX_MATCH], start=1):
+            lineup_path = None
+            notes_path = None
+            final_path = None
             try:
                 await match_box.scroll_into_view_if_needed()
                 await page.wait_for_timeout(700)
@@ -291,17 +297,15 @@ async def estrai_screenshots_fantacalcio():
                 else:
                     match_txt = f"Match {idx}"
 
-                # 1. Trova la FORMAZIONE VISUALE (elemento con classe specifica)
-                # Selettore: div.match-formazione-container (spesso avvolto in .col-xs-12)
+                # 1. Trova le due parti specifiche con selettori specifici
+                # LINEUP: Il campo da gioco
                 lineup_el = await match_box.query_selector("div.match-formazione-container")
-                
-                # 2. Trova le NOTE/NEWS (infortunati/squalificati/news)
-                # Selettore: il box con le news che ha l'header <h2>News</h2>
+                # NOTES: La tabella indisponibili/news
                 notes_el = await match_box.query_selector("div.match-box-prob-form-news-v2")
 
 
                 if not lineup_el:
-                    print(f"⚠️ Fantacalcio: Formazione non trovata per {match_txt}, salto.")
+                    print(f"⚠️ Fantacalcio: Formazione (lineup_el) non trovata per {match_txt}, salto.")
                     continue
                 
                 # --- Screenshot Lineup ---
@@ -343,7 +347,6 @@ async def estrai_screenshots_fantacalcio():
                     gap_block = Image.new("RGB", (base_width, gap), bianco)
                     combined.paste(gap_block, (0, y)); y += gap
                     
-                    # Centra le note rispetto alla larghezza base se sono più strette
                     if notes_img.width < base_width:
                         x_offset = (base_width - notes_img.width) // 2
                     else:
@@ -353,17 +356,35 @@ async def estrai_screenshots_fantacalcio():
                 
                 combined = ImageOps.expand(combined, border=(20, 20, 20, 20), fill=bianco)
 
-                final_path = f"fantacalcio_{idx}.png"
+                final_filename = f"fantacalcio_{idx}.png"
+                final_path = final_filename
                 combined.save(final_path)
 
-                link = drive_upload_or_replace(final_path, final_path)
-                print(f"✅ Fantacalcio | {match_txt} → {final_path} (Salvato su Drive) → {link}")
-
+                # --- UPLOAD SU DRIVE ---
+                link = drive_upload_or_replace(final_path, final_filename)
+                rows.append([FONTE, GIORNATA, idx, match_txt, link])
+                print(f"✅ Fantacalcio | {match_txt} → {final_filename} (Salvato su Drive) → {link}")
+                
             except Exception as e:
-                print(f"⚠️ Errore su match {idx}: {e}")
+                print(f"⚠️ Errore su match {idx} ({match_txt}): {e}")
+            
+            finally:
+                # --- Eliminazione file temporanei locali per evitare problemi di caching ---
+                for p in [final_path, notes_path, lineup_path]:
+                    if p and os.path.exists(p):
+                        os.remove(p)
+
 
         await context.close(); await browser.close()
 
+    if rows:
+        all_vals = ws.get_all_values()
+        # Trova la prima riga "Fantacalcio" (escludendo l'header)
+        start = next(i for i, r in enumerate(all_vals, start=1) if i > 1 and r[0] == "Fantacalcio")
+        ws.update(range_name=f"A{start}:E{start+len(rows)-1}", values=rows)
+        print(f"🟢 Foglio aggiornato (Fantacalcio): {len(rows)} righe.")
+    else:
+        print("ℹ️ Nessuna riga scritta per Fantacalcio.")
 
 # ==========================================================
 #  FONTE 3: Gazzetta.it — versione stabile 9:16 optimized (Log puliti)
