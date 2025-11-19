@@ -2,7 +2,6 @@ name: Esegui Scraper Probabili Formazioni
 
 # 1. Trigger del Workflow
 on:
-  # Rimosso il trigger 'schedule' per ora, così puoi lanciarlo manualmente
   # Usa 'workflow_dispatch' per permettere l'esecuzione manuale dalla scheda Actions
   workflow_dispatch:
 
@@ -31,12 +30,14 @@ jobs:
         # Installa il browser Chromium necessario per lo scraping
         playwright install chromium 
         
-    # Step 4: Esecuzione dello script Python consolidato
-    - name: Run Python Scraper
-      # Esegue il file run.py che contiene tutta la logica di scraping
+    # Step 4: Esecuzione dello script Python consolidato (e autenticazione)
+    - name: Run Python Scraper and Upload to Drive
+      # Passiamo il secret GOOGLE_CREDENTIALS_B64 allo script Python come variabile d'ambiente
+      env:
+        GOOGLE_CREDENTIALS_B64: ${{ secrets.GOOGLE_CREDENTIALS_B64 }}
       run: python run.py
       
-    # Step 5 (Opzionale ma Raccomandato): Carica gli screenshot come Artifacts
+    # Step 5 (Opzionale ma Utile per Debug): Carica gli screenshot come Artifacts
     - name: Upload Screenshots Artifact
       uses: actions/upload-artifact@v4
       with:
