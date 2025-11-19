@@ -241,12 +241,10 @@ async def estrai_screenshots_sosfanta():
         await browser.close()
     
 # ==========================================================
-#  FONTE 2: Fantacalcio (FIX Screenshot + NO GIORNATA Vincolante)
+#  FONTE 2: Fantacalcio (FIX Screenshot + Selettori Robusti)
 # ==========================================================
 import os
-# Assicurati che questi import siano presenti all'inizio del tuo run.py:
-# from PIL import Image, ImageOps 
-# import os 
+from PIL import Image, ImageOps 
 
 async def estrai_screenshots_fantacalcio():
     FONTE = "Fantacalcio"
@@ -277,15 +275,15 @@ async def estrai_screenshots_fantacalcio():
             }
         """)
         
-        # PASSO CRUCIALE: Rimuove le sezioni indesiderate (FIX Pulizia DOM)
-        # Rimuove le sezioni "Presentazione squadre" e "Dettaglio calciatori" che causano l'eccesso nello screenshot
+        # PASSO CRUCIALE: Rimuove le sezioni indesiderate (Pulizia DOM)
         await page.evaluate("""
             () => {
                 const unwantedSelectors = [
                     '.match-container-info-v2', 
                     '.presentazione-squadre',
                     '.dettaglio-calciatori',
-                    '.sezione-probabili-match' // Rimuove sezioni che non sono formazioni
+                    '.sezione-probabili-match', 
+                    '.match-box-prob-form-footer' // Rimuove eventuali footer nascosti
                 ];
                 unwantedSelectors.forEach(sel => {
                     document.querySelectorAll(sel).forEach(el => {
@@ -294,6 +292,9 @@ async def estrai_screenshots_fantacalcio():
                 });
             }
         """)
+        # Forza l'attesa di un elemento chiave della formazione prima di continuare
+        await page.wait_for_selector('li.match.match-item h3.team-name', timeout=10000)
+
 
         matches = await page.query_selector_all("li.match.match-item")
         print(f"🔎 Fantacalcio: trovate {len(matches)} partite")
@@ -316,13 +317,24 @@ async def estrai_screenshots_fantacalcio():
                     if away == "HEL": away = "VER"
                     match_txt = f"{home} - {away}"
 
-                # 1. Trova le due parti specifiche
+                # 1. Trova le due parti specifiche (usiamo selettori alternativi più generici)
+                # Tentativo 1: Selettore specifico per il campo di gioco/titolari
                 lineup_el = await match_box.query_selector("div.match-formazione-container")
+                
+                # Tentativo 2: Selettore più generico, se il primo fallisce (ma l'elemento deve esserci!)
+                if not lineup_el:
+                    lineup_el = await match_box.query_selector("div.match-box-prob-form-v2")
+                    if lineup_el:
+                         # Tenta di trovare il blocco formazione completo (campo + panchina/titolari)
+                         lineup_el = await lineup_el.query_selector("div.match-formazione-container")
+
+
                 notes_el = await match_box.query_selector("div.match-box-prob-form-news-v2")
 
 
                 if not lineup_el:
-                    print(f"⚠️ Fantacalcio: Formazione non trovata per {match_txt}, salto.")
+                    # Se ancora non trovato, salta e stampa l'errore per il debug
+                    print(f"⚠️ Fantacalcio: Formazione non trovata (Elemento specifico mancante) per {match_txt}, salto.")
                     continue
                 
                 # --- Screenshot Lineup (solo la formazione) ---
@@ -397,9 +409,8 @@ async def estrai_screenshots_fantacalcio():
         await context.close(); await browser.close()
 
     if rows:
-        # Questa logica di aggiornamento è presa dal tuo Colab originale
         all_vals = ws.get_all_values()
-        # Nota: Qui la colonna Giornata nel foglio avrà un valore vuoto
+        # Usa GIORNATA "" come placeholder
         start = next(i for i, r in enumerate(all_vals, start=1) if i > 1 and r[0] == "Fantacalcio")
         ws.update(range_name=f"A{start}:E{start+len(rows)-1}", values=rows)
         print(f"🟢 Foglio aggiornato (Fantacalcio): {len(rows)} righe.")
