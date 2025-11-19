@@ -88,43 +88,40 @@ async def estrai_sosfanta(drive, folder_id):
 
     async with async_playwright() as p:
 
-        # CHROME HEADLESS MODE (identico a Colab)
         browser = await p.chromium.launch(
             headless=True,
             args=[
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
                 "--disable-gpu",
-                "--disable-web-security",
-                "--disable-features=IsolateOrigins,site-per-process",
-                "--window-size=1366,768",
-                "--use-gl=swiftshader",            # <<< GPU software come in Colab
-                "--enable-webgl",                  # <<< WebGL attivo come Colab
+                "--disable-dev-shm-usage",
+                "--use-gl=swiftshader",
+                "--enable-webgl",
                 "--ignore-gpu-blacklist",
-                "--disable-background-timer-throttling",
-                "--disable-renderer-backgrounding",
-                "--disable-backgrounding-occluded-windows",
-                "--disable-features=site-per-process"
+                "--window-size=1920,1080"
             ]
         )
 
-        page = await browser.new_page(
-            viewport={"width": 1366, "height": 768},
-            user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119 Safari/537.36"
+        context = await browser.new_context(
+            viewport={"width": 1920, "height": 1080},
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+            device_scale_factor=1,
+            is_mobile=False,
+            has_touch=False,
+            locale="it-IT",
+            screen={"width": 1920, "height": 1080}
         )
+
+        page = await context.new_page()
 
         await page.goto(URL, wait_until="domcontentloaded", timeout=60000)
 
-        # COOKIE FIX (tutte le varianti note)
-        cookie_buttons = [
+        # COOKIE FIX
+        for sel in [
             "button:has-text('Accetta e continua')",
             "button:has-text('Accetta')",
-            "text='Accetta'",
-            "text='ACCETTA'"
-        ]
-
-        for sel in cookie_buttons:
+            "text='Accetta'"
+        ]:
             try:
                 await page.locator(sel).first.click(timeout=2000)
                 await page.wait_for_timeout(500)
@@ -132,23 +129,23 @@ async def estrai_sosfanta(drive, folder_id):
             except:
                 pass
 
-        # FIX: SosFanta headless refresh DOM → attendi stabilizzazione reale
+        # SosFanta fai-da-te refresh fix
         await page.wait_for_timeout(3500)
 
-        # Recupera blocchi EXACT come Colab
-        all_divs = await page.query_selector_all("div[id]")
+        # ORA il DOM è quello corretto (desktop)
+        divs = await page.query_selector_all("div[id]")
+
         blocchi = []
-        for el in all_divs:
-            dom_id = await el.get_attribute("id")
-            if dom_id and re.match(r"^[A-Z]{3}-[A-Z]{3}(-\d+)?$", dom_id):
-                blocchi.append(dom_id)
+        for el in divs:
+            _id = await el.get_attribute("id")
+            if _id and re.match(r"^[A-Z]{3}-[A-Z]{3}(-\d+)?$", _id):
+                blocchi.append(_id)
 
+        print("BLOCCHI TROVATI:", blocchi)
         blocchi = blocchi[:MAX_MATCH]
-        print("Blocchi trovati:", blocchi)
 
-        # screenshot + crop IDENTICI AL COLAB
+        # screenshot identici al Colab
         for idx, dom_id in enumerate(blocchi, start=1):
-
             try:
                 await page.evaluate(
                     "id => document.getElementById(id).scrollIntoView({block:'center'})",
@@ -161,7 +158,6 @@ async def estrai_sosfanta(drive, folder_id):
 
                 await page.locator(f"#{dom_id}").screenshot(path=raw)
 
-                # Crop laterale identico Colab (120px)
                 img = Image.open(raw)
                 w, h = img.size
                 img.crop((120, 0, w - 120, h)).save(final)
@@ -169,9 +165,10 @@ async def estrai_sosfanta(drive, folder_id):
                 upload_or_replace(drive, folder_id, final)
 
             except Exception as e:
-                print(f"Errore SosFanta idx {idx}:", e)
+                print("Errore SosFanta idx", idx, ":", e)
 
         await browser.close()
+
 
 # ===========================================
 # FANTACALCIO – IDENTICO AL COLAB (versione semplificata, MA ORIGINALE)
