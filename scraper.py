@@ -6,7 +6,6 @@ nest_asyncio.apply()
 
 from PIL import Image
 from playwright.async_api import async_playwright
-
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
@@ -19,10 +18,9 @@ if not os.path.exists(OUTPUT_DIR):
     os.makedirs(OUTPUT_DIR)
 
 
-# --------------------------
+# ----------------------------
 # Google Drive Upload Helper
-# --------------------------
-
+# ----------------------------
 def upload_or_replace(drive, folder_id, path_file):
     filename = os.path.basename(path_file)
 
@@ -45,10 +43,9 @@ def upload_or_replace(drive, folder_id, path_file):
         print("Caricato:", filename)
 
 
-# --------------------------
+# ----------------------------
 # SosFanta
-# --------------------------
-
+# ----------------------------
 async def estrai_sosfanta(page, drive, folder_id):
     print("=== SOSFANTA ===")
 
@@ -58,6 +55,7 @@ async def estrai_sosfanta(page, drive, folder_id):
         timeout=60000
     )
 
+    # Cookie
     for sel in [
         "button:has-text('Accetta e continua')",
         "button:has-text('Accetta')",
@@ -69,8 +67,10 @@ async def estrai_sosfanta(page, drive, folder_id):
         except:
             pass
 
+    # Attesa necessaria per layout SosFanta
     await page.wait_for_timeout(3500)
 
+    # Riconoscimento blocchi partita
     divs = await page.query_selector_all("div[id]")
 
     ids = []
@@ -79,10 +79,9 @@ async def estrai_sosfanta(page, drive, folder_id):
         if did and re.match(r"^[A-Z]{3}-[A-Z]{3}(-\d+)?$", did):
             ids.append(did)
 
-    print("Partite trovate:", ids)
+    print("Trovati:", ids)
 
     for idx, did in enumerate(ids[:MAX_MATCH], start=1):
-
         await page.evaluate(
             "id => document.getElementById(id).scrollIntoView({block:'center'})",
             did
@@ -101,10 +100,9 @@ async def estrai_sosfanta(page, drive, folder_id):
         upload_or_replace(drive, folder_id, final)
 
 
-# --------------------------
+# ----------------------------
 # Fantacalcio
-# --------------------------
-
+# ----------------------------
 async def estrai_fantacalcio(page, drive, folder_id):
     print("=== FANTACALCIO ===")
 
@@ -118,27 +116,23 @@ async def estrai_fantacalcio(page, drive, folder_id):
 
     cards = await page.query_selector_all("div[class*='probabili-formazioni__match-card']")
 
-    print("Match trovati:", len(cards))
+    print("Trovati:", len(cards))
 
-    ids = cards[:MAX_MATCH]
-
-    for idx, c in enumerate(ids, start=1):
+    for idx, c in enumerate(cards[:MAX_MATCH], start=1):
         raw = os.path.join(OUTPUT_DIR, f"_fc_{idx}.png")
         final = os.path.join(OUTPUT_DIR, f"fantacalcio_{idx}.png")
 
         await c.scroll_into_view_if_needed()
         await page.wait_for_timeout(300)
-
         await c.screenshot(path=raw)
 
         upload_or_replace(drive, folder_id, raw)
         os.rename(raw, final)
 
 
-# --------------------------
+# ----------------------------
 # Gazzetta
-# --------------------------
-
+# ----------------------------
 async def estrai_gazzetta(page, drive, folder_id):
     print("=== GAZZETTA ===")
 
@@ -152,31 +146,27 @@ async def estrai_gazzetta(page, drive, folder_id):
 
     cards = await page.query_selector_all("section.match-card")
 
-    print("Match trovati:", len(cards))
+    print("Trovati:", len(cards))
 
-    ids = cards[:MAX_MATCH]
-
-    for idx, c in enumerate(ids, start=1):
+    for idx, c in enumerate(cards[:MAX_MATCH], start=1):
         raw = os.path.join(OUTPUT_DIR, f"_gaz_{idx}.png")
         final = os.path.join(OUTPUT_DIR, f"gazzetta_{idx}.png")
 
         await c.scroll_into_view_if_needed()
         await page.wait_for_timeout(300)
-
         await c.screenshot(path=raw)
 
         upload_or_replace(drive, folder_id, raw)
         os.rename(raw, final)
 
 
-# --------------------------
+# ----------------------------
 # MAIN
-# --------------------------
-
+# ----------------------------
 async def main():
     print("=== AVVIO SCRAPER ===")
 
-    # credenziali Google
+    # Decodifica credenziali Drive
     creds_b64 = os.environ["GOOGLE_CREDENTIALS_B64"]
     decoded = base64.b64decode(creds_b64).decode("utf-8")
 
@@ -184,7 +174,8 @@ async def main():
         f.write(decoded)
 
     creds = service_account.Credentials.from_service_account_file(
-        "credentials.json", scopes=["https://www.googleapis.com/auth/drive"]
+        "credentials.json",
+        scopes=["https://www.googleapis.com/auth/drive"]
     )
     drive = build("drive", "v3", credentials=creds)
 
@@ -192,14 +183,15 @@ async def main():
     folder_id = folder_url.split("/")[-1]
 
     async with async_playwright() as p:
+
         browser = await p.chromium.launch(
             headless=False,
             args=[
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
+                "--disable-gpu",
                 "--disable-dev-shm-usage",
                 "--ignore-gpu-blocklist",
-                "--disable-gpu",
                 "--window-size=1366,768"
             ]
         )
@@ -213,7 +205,6 @@ async def main():
 
         page = await context.new_page()
 
-        # ordina esattamente come colab
         await estrai_sosfanta(page, drive, folder_id)
         await estrai_fantacalcio(page, drive, folder_id)
         await estrai_gazzetta(page, drive, folder_id)
