@@ -241,7 +241,7 @@ async def estrai_screenshots_sosfanta():
         await browser.close()
     
 # ==========================================================
-#  FONTE 2: Fantacalcio (SOLUZIONE FINALE: TIMEOUT GLOBALE DI 30s)
+#  FONTE 2: Fantacalcio (SOLUZIONE FINALE STABILE: TIMEOUT GLOBALE DI 30s)
 # ==========================================================
 import os
 from PIL import Image, ImageOps 
@@ -251,7 +251,7 @@ async def estrai_screenshots_fantacalcio():
     URL = "https://www.fantacalcio.it/probabili-formazioni-serie-a"
     rows = []
 
-    # FIX VARIABILE: Usiamo "" se GIORNATA non è definito nel contesto
+    # FIX VARIABILE: Usiamo "" se GIORNATA non è definito
     try:
         giornata_val = GIORNATA 
     except NameError:
@@ -262,18 +262,20 @@ async def estrai_screenshots_fantacalcio():
             headless=True, 
             args=["--no-sandbox", "--disable-dev-shm-usage", "--headless=new"]
         )
-        # 🎯 FIX DEFINITIVO: Impostiamo il timeout di default per tutte le azioni a 30 secondi
+        # 🎯 FIX TIMEOUT GLOBALE: Sovrascrive il default di 5000ms con 30 secondi
         context = await browser.new_context(
             viewport={"width":1600,"height":4000},
-            timeout=30000 # Sovrascrive il default di 5000ms per tutte le azioni.
+            timeout=30000 
         )
         page = await context.new_page()
+        # Tempo massimo per la navigazione a 60s
         await page.goto(URL, wait_until="domcontentloaded", timeout=60000)
 
         # Gestione cookie/privacy
         for sel in ["button:has-text('Accetta')", "button:has-text('Accetta e continua')", "text='CONFIRM'", "button:has-text('Confirm')"]:
             try:
-                await page.locator(sel).first.click(timeout=3000, force=True)
+                # Il timeout per il click ora è 30s grazie al contesto
+                await page.locator(sel).first.click(timeout=3000, force=True) 
                 await page.wait_for_timeout(600)
                 break
             except: pass
@@ -285,7 +287,7 @@ async def estrai_screenshots_fantacalcio():
             }
         """)
         
-        # Pulizia DOM aggressiva (risolve immagine sporca)
+        # Pulizia DOM (risolve immagine sporca)
         await page.evaluate("""
             () => {
                 const unwantedSelectors = [
@@ -303,9 +305,9 @@ async def estrai_screenshots_fantacalcio():
             }
         """)
         
-        # 🎯 Attesa Globale del Contenuto Dinamico
+        # 🎯 Attesa Globale: Utilizziamo il timeout di 30s
         try:
-             # Usiamo il locator più stabile, ora con un timeout implicito di 30s
+             # Aspettiamo che il primo elemento di colonna (la formazione) sia attaccato al DOM
              match_boxes = page.locator("li.match.match-item")
              await match_boxes.first.locator("div.col-sm-6.col-xs-12").wait_for(state="attached")
              print("✅ Contenuto Fantacalcio caricato dopo attesa globale.")
@@ -322,11 +324,10 @@ async def estrai_screenshots_fantacalcio():
             match_txt = f"Match {idx}"
             
             try:
-                # Scroll e pausa breve
                 await match_box.scroll_into_view_if_needed()
                 await page.wait_for_timeout(500)
                 
-                # Nomi squadre per il log
+                # Nomi squadre
                 team_names = await match_box.query_selector_all("h3.h6.team-name")
                 if len(team_names) >= 2:
                     home = (await team_names[0].inner_text()).strip()[:3].upper()
@@ -336,9 +337,8 @@ async def estrai_screenshots_fantacalcio():
                     match_txt = f"{home} - {away}"
 
                 # SELEZIONE ROBUSTA: Per indice
-                # Non serve wait_for_selector qui, poiché l'attesa globale è già stata fatta
-                
                 all_cols_locator = match_box.locator("div.col-sm-6.col-xs-12")
+                # Non serve wait_for_selector locale grazie al timeout di 30s
                 all_cols = await all_cols_locator.all()
 
                 lineup_el = all_cols[0] if len(all_cols) >= 1 else None
@@ -425,7 +425,6 @@ async def estrai_screenshots_fantacalcio():
         print(f"🟢 Foglio aggiornato (Fantacalcio): {len(rows)} righe.")
     else:
         print("ℹ️ Nessuna riga scritta per Fantacalcio.")
-
 
 # ==========================================================
 #  FONTE 3: Gazzetta.it — versione stabile 9:16 optimized (Log puliti)
