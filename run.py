@@ -241,7 +241,7 @@ async def estrai_screenshots_sosfanta():
         await browser.close()
     
 # ==========================================================
-#  FONTE 2: Fantacalcio (FIX Screenshot: Pulizia DOM + Interazione Forzata)
+#  FONTE 2: Fantacalcio (FIX FINALE: Selettori per Indice e Robustezza)
 # ==========================================================
 import os
 from PIL import Image, ImageOps 
@@ -260,7 +260,7 @@ async def estrai_screenshots_fantacalcio():
         page = await context.new_page()
         await page.goto(URL, wait_until="domcontentloaded", timeout=60000)
 
-        # Gestione cookie/privacy (mantenuta)
+        # Gestione cookie/privacy
         for sel in ["button:has-text('Accetta')", "button:has-text('Accetta e continua')", "text='CONFIRM'", "button:has-text('Confirm')"]:
             try:
                 await page.locator(sel).first.click(timeout=2500, force=True)
@@ -275,44 +275,44 @@ async def estrai_screenshots_fantacalcio():
             }
         """)
         
-        # PASSO CRUCIALE 1: Rimuove le sezioni indesiderate (Pulizia DOM Aggressiva)
+        # PASSO AGGIUNTIVO: Rimuove le sezioni indesiderate (per pulizia globale, anche se dovremmo usare l'unione)
         await page.evaluate("""
             () => {
                 const unwantedSelectors = [
-                    '.match-container-info-v2', // Header Informazioni partita
-                    '.presentazione-squadre',   // Presentazione squadre
-                    '.dettaglio-calciatori',    // Dettaglio calciatori (tabella finale)
-                    '.sezione-probabili-match', // Sezioni extra in fondo
-                    'footer',                   // Rimuove il footer
+                    '.match-container-info-v2', 
+                    '.presentazione-squadre',
+                    '.dettaglio-calciatori',
+                    '.sezione-probabili-match', 
+                    'footer',
                 ];
                 unwantedSelectors.forEach(sel => {
                     document.querySelectorAll(sel).forEach(el => {
-                        el.remove(); // Rimuovi completamente dal DOM
+                        el.remove();
                     });
                 });
             }
         """)
-        
-        # Garantisce che i blocchi partita siano caricati
+
+        # Attende il caricamento dei contenitori principali delle partite
         try:
-            # Attende che il blocco formazione sia presente nel DOM, anche se nascosto
-            await page.wait_for_selector('li.match.match-item div.match-box-prob-form-v2', timeout=15000)
+            await page.wait_for_selector('li.match.match-item', timeout=15000)
         except:
-             print("⚠️ Avviso: I blocchi formazione non si sono caricati in tempo.")
+             print("⚠️ Avviso: I blocchi partita non si sono caricati in tempo.")
         
         matches = await page.query_selector_all("li.match.match-item")
         print(f"🔎 Fantacalcio: trovate {len(matches)} partite")
 
         for idx, match_box in enumerate(matches[:MAX_MATCH], start=1):
+            lineup_path = None
+            notes_path = None
             final_path = None
             match_txt = f"Match {idx}"
             
             try:
-                # Scroll e breve attesa per rendere il blocco stabile
                 await match_box.scroll_into_view_if_needed()
                 await page.wait_for_timeout(700)
                 
-                # Nomi squadre per il log (mantenuti)
+                # Nomi squadre per il log
                 team_names = await match_box.query_selector_all("h3.h6.team-name")
                 if len(team_names) >= 2:
                     home = (await team_names[0].inner_text()).strip()[:3].upper()
@@ -321,43 +321,92 @@ async def estrai_screenshots_fantacalcio():
                     if away == "HEL": away = "VER"
                     match_txt = f"{home} - {away}"
 
-                # PASSO CRUCIALE 2: FORZARE IL RENDERING DELLA FORMAZIONE
-                # Tenta di cliccare sul blocco formazione per assicurare che sia espanso
-                form_box = await match_box.query_selector("div.match-box-prob-form-v2")
-                if form_box:
-                    # Non clicchiamo, ma usiamo la funzione evaluate per rimuovere stili nascosti
-                    await form_box.evaluate("""(el) => {
-                        // Forza la visualizzazione di eventuali contenuti nascosti
-                        el.style.display = 'block';
-                        el.style.visibility = 'visible';
-                        // Rimuove eventuali classi che nascondono o minimizzano
-                        el.classList.remove('is-hidden', 'minimized');
-                        // Forza il ricalcolo del layout
-                        el.offsetHeight; 
-                    }""")
-                    await page.wait_for_timeout(500) # Attende il ricalcolo
+                # 1. NUOVO FIX: SELEZIONE DELLE COLONNE PER INDICE (ROBUSTEZZA)
+                
+                # Attende che i contenitori generici delle colonne siano carichi
+                await match_box.wait_for_selector("div.col-sm-6.col-xs-12", timeout=5000)
+                
+                # Seleziona tutte le colonne all'interno della partita
+                all_cols = await match_box.query_selector_all("div.col-sm-6.col-xs-12")
 
-                # Scatta lo screenshot sull'intero blocco affidabile (che ora è pulito e reso)
+                # Assegna i blocchi basandosi sulla loro posizione (sempre Formazione, poi Note)
+                lineup_el = all_cols[0] if len(all_cols) >= 1 else None
+                notes_el = all_cols[1] if len(all_cols) >= 2 else None
+
+
+                if not lineup_el:
+                    # Questo errore si verifica solo se non trova nemmeno la prima colonna generica, 
+                    # il che significa che il contenuto non è proprio caricato.
+                    print(f"🛑 Fantacalcio: Formazione non trovata (Manca la colonna principale) per {match_txt}, salto.")
+                    continue
+                
+                # --- Screenshot Lineup ---
+                lineup_path = f"fantacalcio_{idx}_lineup.png"
+                await lineup_el.screenshot(path=lineup_path)
+                lineup_img = Image.open(lineup_path)
+                
+                # --- Screenshot Notes ---
+                notes_img = None
+                if notes_el:
+                    notes_path = f"fantacalcio_{idx}_notes.png"
+                    # Rimuove l'intestazione H2 della sezione News per pulizia
+                    await notes_el.evaluate("""(el) => {
+                        const title = el.querySelector('h2');
+                        if (title) title.remove();
+                    }""")
+                    await notes_el.screenshot(path=notes_path)
+                    notes_img = Image.open(notes_path)
+                    
+                # ======================================================
+                #     UNIONE IMMAGINI (PIL)
+                # ======================================================
+                
+                bianco = (255, 255, 255) 
+                base_width = lineup_img.width
+                gap = 20 
+                
+                total_height = lineup_img.height
+                if notes_img:
+                    total_height += gap + notes_img.height
+                
+                combined = Image.new("RGB", (base_width, total_height), bianco)
+                
+                y = 0
+                combined.paste(lineup_img, (0, y))
+                
+                if notes_img:
+                    y += lineup_img.height
+                    gap_block = Image.new("RGB", (base_width, gap), bianco)
+                    combined.paste(gap_block, (0, y)); y += gap
+                    
+                    if notes_img.width < base_width:
+                        x_offset = (base_width - notes_img.width) // 2
+                    else:
+                        x_offset = 0
+                        
+                    combined.paste(notes_img, (x_offset, y))
+                
+                combined = ImageOps.expand(combined, border=(20, 20, 20, 20), fill=bianco)
+
                 final_filename = f"fantacalcio_{idx}.png"
                 final_path = final_filename
-                
-                await match_box.screenshot(path=final_path)
+                combined.save(final_path)
 
                 # --- UPLOAD SU DRIVE ---
                 link = drive_upload_or_replace(final_path, final_filename)
                 
-                # FIX GIORNATA: Inserita una stringa vuota "" al posto della variabile GIORNATA
+                # FIX GIORNATA: Inserita una stringa vuota ""
                 rows.append([FONTE, "", idx, match_txt, link]) 
                 print(f"✅ Fantacalcio | {match_txt} → {final_filename} (Salvato su Drive) → {link}")
                 
             except Exception as e:
-                # Errore generico (non più "Formazione non trovata")
                 print(f"⚠️ Errore generico su match {idx} ({match_txt}): {e}")
             
             finally:
                 # --- Eliminazione file temporanei locali ---
-                if final_path and os.path.exists(final_path):
-                    os.remove(final_path)
+                for p in [final_path, notes_path, lineup_path]:
+                    if p and os.path.exists(p):
+                        os.remove(p)
 
 
         await context.close(); await browser.close()
