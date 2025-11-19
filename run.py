@@ -544,11 +544,13 @@ async def aggiorna_tutte_le_fonti():
     await estrai_screenshots_sosfanta()
     await estrai_screenshots_fantacalcio()
     await estrai_screenshots_gazzetta()
-    
+    # Rimosso: propaga_match_ad_altre_fonti()
+
 # ==========================================================
 #  ESECUZIONE PRINCIPALE (per schedulazione)
 # ==========================================================
 if __name__ == "__main__":
     print("=== AVVIO SCRAPER ===")
+    import asyncio
     asyncio.run(aggiorna_tutte_le_fonti()) 
     print("=== SCRAPER COMPLETATO ===")
