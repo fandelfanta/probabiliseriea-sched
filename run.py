@@ -241,7 +241,7 @@ async def estrai_screenshots_sosfanta():
         await browser.close()
     
 # ==========================================================
-#  FONTE 2: Fantacalcio (SOLUZIONE FINALE FREE: Ricerca Mirata + Network Interception)
+#  FONTE 2: Fantacalcio (SOLUZIONE FINALE FREE: Pausa Aggressiva + Ricerca Mirata)
 # ==========================================================
 import os
 from PIL import Image, ImageOps 
@@ -271,7 +271,7 @@ async def estrai_screenshots_fantacalcio():
             headless=True, 
             args=["--no-sandbox", "--disable-dev-shm-usage", "--headless=new"]
         )
-        # Timeout massimo per le operazioni di pagina
+        # Timeout massimo per le operazioni di pagina (60 secondi)
         context = await browser.new_context(
             viewport={"width":1600,"height":6000},
             timeout=60000 
@@ -336,7 +336,10 @@ async def estrai_screenshots_fantacalcio():
             try:
                 # Scroll e attesa con timeout di 60s
                 await match_box.scroll_into_view_if_needed(timeout=60000) 
-                await page.wait_for_timeout(500)
+                
+                # 🎯 PAUSA CRITICA: Diamo 5 secondi di lavoro alla CPU del runner per renderizzare la formazione
+                print(f"⏳ Pausa di 5 secondi per permettere la renderizzazione di {match_txt}...")
+                await page.wait_for_timeout(5000) 
                 
                 # Nomi squadre per il log
                 team_names = await match_box.query_selector_all("h3.h6.team-name")
@@ -347,7 +350,7 @@ async def estrai_screenshots_fantacalcio():
                     if away == "HEL": away = "VER"
                     match_txt = f"{home} - {away}"
 
-                # 🎯 CATTURA MIRATA: Formazione e Note (Colonna 1 e 2)
+                # CATTURA MIRATA: Formazione e Note (Colonna 1 e 2)
                 all_cols = await match_box.query_selector_all("div.col-sm-6.col-xs-12")
 
                 lineup_el = all_cols[0] if len(all_cols) >= 1 else None
@@ -385,7 +388,6 @@ async def estrai_screenshots_fantacalcio():
                 
                 gap = 20 
                 
-                # Calcola l'altezza totale per le 2 sezioni (lineup, notes)
                 total_height = lineup_img.height + (gap + notes_img.height if notes_img else 0)
                 
                 combined = Image.new("RGB", (base_width, total_height), bianco)
@@ -431,7 +433,6 @@ async def estrai_screenshots_fantacalcio():
         print(f"🟢 Foglio aggiornato (Fantacalcio): {len(rows)} righe.")
     else:
         print("ℹ️ Nessuna riga scritta per Fantacalcio.")
-
 # ==========================================================
 #  FONTE 3: Gazzetta.it 
 # ==========================================================
