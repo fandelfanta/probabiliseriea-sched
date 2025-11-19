@@ -1,7 +1,3 @@
 playwright
-google-auth
-google-auth-oauthlib
-google-auth-httplib2
-google-api-python-client
-nest_asyncio
-pillow
+nest-asyncio
+Pillow
