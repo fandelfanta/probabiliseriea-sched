@@ -1,4 +1,3 @@
-# requirements.txt
 playwright
 nest-asyncio
 Pillow
