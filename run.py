@@ -241,16 +241,14 @@ async def estrai_screenshots_sosfanta():
         await browser.close()
     
 # ==========================================================
-#  FONTE 2: Fantacalcio (REPLICATO ESATTAMENTE CODICE COLAB)
+#  FONTE 2: Fantacalcio (FIXED per la rilevazione di due parti)
 # ==========================================================
-import os
-# Rimuoviamo gli import di PIL/ImageOps che non servono se non uniamo le immagini
-# Nota: Assicurati che 'import os' sia presente all'inizio del tuo run.py
+# NOTA: Assicurati che 'from PIL import Image, ImageOps' sia presente
+# all'inizio del tuo run.py (se hai usato il mio ultimo script completo, lo è)
 
 async def estrai_screenshots_fantacalcio():
     FONTE = "Fantacalcio"
     URL = "https://www.fantacalcio.it/probabili-formazioni-serie-a"
-    rows = []
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(
@@ -261,7 +259,7 @@ async def estrai_screenshots_fantacalcio():
         page = await context.new_page()
         await page.goto(URL, wait_until="domcontentloaded", timeout=60000)
 
-        # Gestione cookie/privacy
+        # cookie/privacy
         for sel in ["button:has-text('Accetta')", "button:has-text('Accetta e continua')", "text='CONFIRM'", "button:has-text('Confirm')"]:
             try:
                 await page.locator(sel).first.click(timeout=2500, force=True)
@@ -276,13 +274,10 @@ async def estrai_screenshots_fantacalcio():
             }
         """)
 
-        # Seleziona tutti i blocchi partita
         matches = await page.query_selector_all("li.match.match-item")
         print(f"🔎 Fantacalcio: trovate {len(matches)} partite")
 
         for idx, match_box in enumerate(matches[:MAX_MATCH], start=1):
-            final_path = None
-            match_txt = f"Match {idx}" # Fallback
             try:
                 await match_box.scroll_into_view_if_needed()
                 await page.wait_for_timeout(700)
@@ -295,27 +290,76 @@ async def estrai_screenshots_fantacalcio():
                     if home == "HEL": home = "VER"
                     if away == "HEL": away = "VER"
                     match_txt = f"{home} - {away}"
-                
-                final_filename = f"fantacalcio_{idx}.png"
-                final_path = final_filename
-                
-                # --- SCREENSHOT DELL'INTERO BLOCCO PARTITA (Logica Colab) ---
-                # Screenshot dell'elemento match_box completo
-                await match_box.screenshot(path=final_path)
+                else:
+                    match_txt = f"Match {idx}"
 
-                # --- UPLOAD SU DRIVE ---
-                link = drive_upload_or_replace(final_path, final_filename)
-                rows.append([FONTE, GIORNATA, idx, match_txt, link])
-                print(f"✅ Fantacalcio | {match_txt} → {final_filename} (Salvato su Drive) → {link}")
+                # 1. Trova le due parti specifiche all'interno del match_box
+                # La formazione visuale (parte principale)
+                lineup_el = await match_box.query_selector("div.match-formazione-container")
+                # Le note (infortunati/squalificati/news)
+                notes_el = await match_box.query_selector("div.match-box-prob-form-news-v2")
+
+                if not lineup_el:
+                    print(f"⚠️ Fantacalcio: Formazione non trovata per {match_txt}, salto.")
+                    continue
                 
+                # --- Screenshot Lineup ---
+                lineup_path = f"fantacalcio_{idx}_lineup.png"
+                await lineup_el.screenshot(path=lineup_path)
+                lineup_img = Image.open(lineup_path)
+                
+                # --- Screenshot Notes (se presente) ---
+                notes_img = None
+                if notes_el:
+                    notes_path = f"fantacalcio_{idx}_notes.png"
+                    # Rimuove l'intestazione H2 della sezione News per pulizia
+                    await notes_el.evaluate("""(el) => {
+                        const title = el.querySelector('h2');
+                        if (title) title.remove();
+                    }""")
+                    await notes_el.screenshot(path=notes_path)
+                    notes_img = Image.open(notes_path)
+                    
+                # ======================================================
+                #     UNIONE IMMAGINI (PIL) - (Logica di combinazione)
+                # ======================================================
+                
+                # Parametri per l'unione (Fantacalcio è su sfondo bianco)
+                bianco = (255, 255, 255) 
+                base_width = lineup_img.width
+                gap = 20 # spazio tra formazione e note
+                
+                # Calcola l'altezza totale
+                total_height = lineup_img.height
+                if notes_img:
+                    total_height += gap + notes_img.height
+                
+                combined = Image.new("RGB", (base_width, total_height), bianco)
+                
+                # Unisce le immagini
+                y = 0
+                combined.paste(lineup_img, (0, y))
+                
+                if notes_img:
+                    y += lineup_img.height
+                    # Blocco di separazione
+                    gap_block = Image.new("RGB", (base_width, gap), bianco)
+                    combined.paste(gap_block, (0, y)); y += gap
+                    
+                    # Incolla le note
+                    combined.paste(notes_img, (0, y))
+                
+                # Padding finale e salvataggio
+                combined = ImageOps.expand(combined, border=(20, 20, 20, 20), fill=bianco)
+
+                final_path = f"fantacalcio_{idx}.png"
+                combined.save(final_path)
+
+                link = drive_upload_or_replace(final_path, final_path)
+                print(f"✅ Fantacalcio | {match_txt} → {final_path} (Salvato su Drive) → {link}")
+
             except Exception as e:
-                print(f"⚠️ Errore su match {idx} ({match_txt}): {e}")
-            
-            finally:
-                # --- Eliminazione file temporanei locali ---
-                if final_path and os.path.exists(final_path):
-                    os.remove(final_path)
-
+                print(f"⚠️ Errore su match {idx}: {e}")
 
         await context.close(); await browser.close()
 
