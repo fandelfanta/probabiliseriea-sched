@@ -241,11 +241,10 @@ async def estrai_screenshots_sosfanta():
         await browser.close()
     
 # ==========================================================
-#  FONTE 2: Fantacalcio (REPLICATO ESATTAMENTE CODICE COLAB)
+#  FONTE 2: Fantacalcio (FIXED con Unione Immagini e Pulizia DOM)
 # ==========================================================
 import os
-# Rimuoviamo gli import di PIL/ImageOps che non servono se non uniamo le immagini
-# Nota: Assicurati che 'import os' sia presente all'inizio del tuo run.py
+from PIL import Image, ImageOps # Necessario per l'unione
 
 async def estrai_screenshots_fantacalcio():
     FONTE = "Fantacalcio"
@@ -275,14 +274,42 @@ async def estrai_screenshots_fantacalcio():
                 document.querySelectorAll('[role="dialog"], .fc-consent-root, .modal, .popup').forEach(e=>e.remove());
             }
         """)
+        
+        # PASSO CRUCIALE: Nasconde le sezioni indesiderate
+        await page.evaluate("""
+            () => {
+                // Selezioni le sezioni sotto le formazioni e le nasconde
+                const unnecessarySelectors = [
+                    '#match-container .page-content-wrapper .row:not(:has(.match-formazione-container))', // Nasconde sezioni globali dopo le partite
+                    '.match-container-info-v2', 
+                    '.presentazione-squadre',
+                    '.dettaglio-calciatori'
+                ];
+                unnecessarySelectors.forEach(sel => {
+                    document.querySelectorAll(sel).forEach(el => {
+                        el.style.display = 'none';
+                    });
+                });
+            }
+        """)
 
-        # Seleziona tutti i blocchi partita
         matches = await page.query_selector_all("li.match.match-item")
         print(f"🔎 Fantacalcio: trovate {len(matches)} partite")
+        
+        # Qui recuperiamo GIORNATA che sembra mancare in questo contesto
+        try:
+            global GIORNATA
+        except NameError:
+             # Se GIORNATA non è definita globalmente, usiamo un fallback o la definiamo qui se il Colab lo faceva
+             # Nel Colab originale GIORNATA era definita in CONFIG [cite: 94]
+             # Se il problema persiste, dovrai assicurarti che la variabile sia accessibile globalmente
+             GIORNATA = 1 # Fallback, assumendo la prima giornata se non definita altrove
 
         for idx, match_box in enumerate(matches[:MAX_MATCH], start=1):
+            lineup_path = None
+            notes_path = None
             final_path = None
-            match_txt = f"Match {idx}" # Fallback
+            match_txt = f"Match {idx}"
             try:
                 await match_box.scroll_into_view_if_needed()
                 await page.wait_for_timeout(700)
@@ -295,13 +322,67 @@ async def estrai_screenshots_fantacalcio():
                     if home == "HEL": home = "VER"
                     if away == "HEL": away = "VER"
                     match_txt = f"{home} - {away}"
+
+                # 1. Trova le due parti specifiche
+                lineup_el = await match_box.query_selector("div.match-formazione-container")
+                notes_el = await match_box.query_selector("div.match-box-prob-form-news-v2")
+
+
+                if not lineup_el:
+                    print(f"⚠️ Fantacalcio: Formazione non trovata per {match_txt}, salto.")
+                    continue
                 
+                # --- Screenshot Lineup ---
+                lineup_path = f"fantacalcio_{idx}_lineup.png"
+                await lineup_el.screenshot(path=lineup_path)
+                lineup_img = Image.open(lineup_path)
+                
+                # --- Screenshot Notes (se presente) ---
+                notes_img = None
+                if notes_el:
+                    notes_path = f"fantacalcio_{idx}_notes.png"
+                    # Rimuove l'intestazione H2 della sezione News per pulizia
+                    await notes_el.evaluate("""(el) => {
+                        const title = el.querySelector('h2');
+                        if (title) title.remove();
+                    }""")
+                    await notes_el.screenshot(path=notes_path)
+                    notes_img = Image.open(notes_path)
+                    
+                # ======================================================
+                #     UNIONE IMMAGINI (PIL)
+                # ======================================================
+                
+                bianco = (255, 255, 255) 
+                base_width = lineup_img.width
+                gap = 20 
+                
+                total_height = lineup_img.height
+                if notes_img:
+                    total_height += gap + notes_img.height
+                
+                combined = Image.new("RGB", (base_width, total_height), bianco)
+                
+                y = 0
+                combined.paste(lineup_img, (0, y))
+                
+                if notes_img:
+                    y += lineup_img.height
+                    gap_block = Image.new("RGB", (base_width, gap), bianco)
+                    combined.paste(gap_block, (0, y)); y += gap
+                    
+                    if notes_img.width < base_width:
+                        x_offset = (base_width - notes_img.width) // 2
+                    else:
+                        x_offset = 0
+                        
+                    combined.paste(notes_img, (x_offset, y))
+                
+                combined = ImageOps.expand(combined, border=(20, 20, 20, 20), fill=bianco)
+
                 final_filename = f"fantacalcio_{idx}.png"
                 final_path = final_filename
-                
-                # --- SCREENSHOT DELL'INTERO BLOCCO PARTITA (Logica Colab) ---
-                # Screenshot dell'elemento match_box completo
-                await match_box.screenshot(path=final_path)
+                combined.save(final_path)
 
                 # --- UPLOAD SU DRIVE ---
                 link = drive_upload_or_replace(final_path, final_filename)
@@ -313,20 +394,24 @@ async def estrai_screenshots_fantacalcio():
             
             finally:
                 # --- Eliminazione file temporanei locali ---
-                if final_path and os.path.exists(final_path):
-                    os.remove(final_path)
+                for p in [final_path, notes_path, lineup_path]:
+                    if p and os.path.exists(p):
+                        os.remove(p)
 
 
         await context.close(); await browser.close()
 
     if rows:
+        # Questa logica di aggiornamento è presa dal tuo Colab originale [cite: 137]
         all_vals = ws.get_all_values()
-        # Trova la prima riga "Fantacalcio" (escludendo l'header)
         start = next(i for i, r in enumerate(all_vals, start=1) if i > 1 and r[0] == "Fantacalcio")
         ws.update(range_name=f"A{start}:E{start+len(rows)-1}", values=rows)
         print(f"🟢 Foglio aggiornato (Fantacalcio): {len(rows)} righe.")
     else:
         print("ℹ️ Nessuna riga scritta per Fantacalcio.")
+
+
+
 # ==========================================================
 #  FONTE 3: Gazzetta.it — versione stabile 9:16 optimized (Log puliti)
 # ==========================================================
