@@ -241,7 +241,7 @@ async def estrai_screenshots_sosfanta():
         await browser.close()
     
 # ==========================================================
-#  FONTE 2: Fantacalcio (REPLICA COlab: FIX TEMPISTICA E SELEZIONE PER INDICE)
+#  FONTE 2: Fantacalcio (REPLICA Colab: FIX TEMPISTICA E SELEZIONE PER INDICE)
 # ==========================================================
 import os
 from PIL import Image, ImageOps 
@@ -275,7 +275,7 @@ async def estrai_screenshots_fantacalcio():
             }
         """)
         
-        # Pulizia globale DOM (Necessaria per escludere elementi ingombranti)
+        # Pulizia globale DOM (Necessaria per escludere elementi ingombranti fuori dalle colonne)
         await page.evaluate("""
             () => {
                 const unwantedSelectors = [
@@ -293,14 +293,13 @@ async def estrai_screenshots_fantacalcio():
             }
         """)
         
-        # 🎯 PASSAGGIO CRUCIALE: Attesa Globale del Contenuto Dinamico
-        # Aspetta che un elemento strutturale (le colonne) sia visibile a livello di pagina.
-        # Questo è il FIX per il "Timeout 5000ms exceeded"
+        # 🎯 FIX TEMPISTICA: Attesa Globale del Contenuto Dinamico
+        # Questo risolve il "Timeout 5000ms exceeded" forzando l'attesa.
         try:
+             # Aspetta che un elemento strutturale (le colonne) sia visibile a livello di pagina.
              await page.wait_for_selector('div.col-sm-6.col-xs-12', timeout=20000) # Attesa estesa a 20 secondi
              print("✅ Contenuto Fantacalcio caricato dopo attesa globale.")
         except:
-             # Se non carica, si prosegue, ma l'errore verrà gestito nel loop.
              print("⚠️ ATTENZIONE: Caricamento Fantacalcio non completato entro 20 secondi.")
         
         matches = await page.query_selector_all("li.match.match-item")
@@ -313,7 +312,7 @@ async def estrai_screenshots_fantacalcio():
             match_txt = f"Match {idx}"
             
             try:
-                # Scroll per forzare la visibilità nel viewport
+                # Scroll e attesa breve per forzare la visibilità del match specifico
                 await match_box.scroll_into_view_if_needed()
                 await page.wait_for_timeout(700)
                 
@@ -326,7 +325,12 @@ async def estrai_screenshots_fantacalcio():
                     if away == "HEL": away = "VER"
                     match_txt = f"{home} - {away}"
 
-                # SELEZIONE ROBUSTA (per indice, per evitare il fallimento delle classi specifiche)
+                # SELEZIONE ROBUSTA: Si usano le colonne generiche e l'indice [0] e [1]
+                # per evitare il fallimento dei selettori specifici in ambienti headless.
+                
+                # Attesa finale sull'elemento specifico (ridotta a 3s poiché l'attesa globale è stata fatta)
+                await match_box.wait_for_selector("div.col-sm-6.col-xs-12", timeout=3000)
+                
                 all_cols = await match_box.query_selector_all("div.col-sm-6.col-xs-12")
 
                 lineup_el = all_cols[0] if len(all_cols) >= 1 else None
@@ -392,11 +396,12 @@ async def estrai_screenshots_fantacalcio():
                 # --- UPLOAD SU DRIVE ---
                 link = drive_upload_or_replace(final_path, final_filename)
                 
-                # FIX GIORNATA (stringa vuota)
+                # FIX GIORNATA (stringa vuota, come concordato)
                 rows.append([FONTE, "", idx, match_txt, link]) 
                 print(f"✅ Fantacalcio | {match_txt} → {final_filename} (Salvato su Drive) → {link}")
                 
             except Exception as e:
+                # Se fallisce qui, è quasi certamente un problema di caricamento
                 print(f"⚠️ Errore generico su match {idx} ({match_txt}): {e}")
             
             finally:
