@@ -1,34 +1,42 @@
-name: Esecuzione Scraper Probabili
+name: Run scraper
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "0 5 * * *"   # esecuzione giornaliera alle 5:00
+    # puoi cambiarla, ma per ora tienila così
 
 jobs:
-  run-script:
+  run-scraper:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Install Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
+      - name: Install Xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+          Xvfb :99 -screen 0 1920x1080x24 &
+          echo "DISPLAY=:99" >> $GITHUB_ENV
+
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
-          playwright install --with-deps chromium
 
-      - name: Decode Google credentials
-        env:
-          GOOGLE_CREDENTIALS_B64: ${{ secrets.GOOGLE_CREDENTIALS_B64 }}
+      - name: Install Playwright browsers
         run: |
-          echo "${GOOGLE_CREDENTIALS_B64}" | base64 -d > credentials.json
+          playwright install chromium
 
       - name: Run scraper
         env:
           DRIVE_FOLDER_URL: ${{ secrets.DRIVE_FOLDER_URL }}
+          GOOGLE_CREDENTIALS_B64: ${{ secrets.GOOGLE_CREDENTIALS_B64 }}
         run: |
           python run.py
