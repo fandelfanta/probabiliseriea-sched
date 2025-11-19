@@ -241,10 +241,10 @@ async def estrai_screenshots_sosfanta():
         await browser.close()
     
 # ==========================================================
-#  FONTE 2: Fantacalcio (FIX Selettori Robusti + Pulizia DOM Aggressiva)
+#  FONTE 2: Fantacalcio (FIX Screenshot: Pulizia DOM + Screenshot Blocco Affidabile)
 # ==========================================================
 import os
-from PIL import Image, ImageOps 
+from PIL import Image, ImageOps # Import mantenuto per coerenza, anche se non usiamo l'unione
 
 async def estrai_screenshots_fantacalcio():
     FONTE = "Fantacalcio"
@@ -276,6 +276,7 @@ async def estrai_screenshots_fantacalcio():
         """)
         
         # PASSO CRUCIALE 1: Rimuove le sezioni indesiderate (Pulizia DOM Aggressiva)
+        # Rimuoviamo gli elementi che non vogliamo *prima* di scorrere e scattare la foto.
         await page.evaluate("""
             () => {
                 const unwantedSelectors = [
@@ -283,7 +284,7 @@ async def estrai_screenshots_fantacalcio():
                     '.presentazione-squadre',   // Presentazione squadre
                     '.dettaglio-calciatori',    // Dettaglio calciatori (tabella finale)
                     '.sezione-probabili-match', // Sezioni extra in fondo
-                    'footer',                   // Rimuove il footer (potrebbe causare problemi di altezza)
+                    'footer',                   // Rimuove il footer
                 ];
                 unwantedSelectors.forEach(sel => {
                     document.querySelectorAll(sel).forEach(el => {
@@ -293,21 +294,21 @@ async def estrai_screenshots_fantacalcio():
             }
         """)
         
-        # Attesa di un elemento chiave che assicura che il contenuto sia caricato
+        # Garantisce che i blocchi partita siano caricati e visibili
         try:
-            await page.wait_for_selector('li.match.match-item div.match-formazione-container', timeout=15000)
+            await page.wait_for_selector('li.match.match-item', timeout=15000)
         except:
-             print("⚠️ Avviso: La formazione potrebbe non essersi caricata in tempo, procedo comunque.")
+             print("⚠️ Avviso: I blocchi partita non si sono caricati in tempo.")
         
         matches = await page.query_selector_all("li.match.match-item")
         print(f"🔎 Fantacalcio: trovate {len(matches)} partite")
 
         for idx, match_box in enumerate(matches[:MAX_MATCH], start=1):
-            lineup_path = None
-            notes_path = None
             final_path = None
             match_txt = f"Match {idx}"
+            
             try:
+                # Scroll e breve attesa per rendere il blocco stabile
                 await match_box.scroll_into_view_if_needed()
                 await page.wait_for_timeout(700)
                 
@@ -319,82 +320,14 @@ async def estrai_screenshots_fantacalcio():
                     if home == "HEL": home = "VER"
                     if away == "HEL": away = "VER"
                     match_txt = f"{home} - {away}"
-
-                # 1. Trova le due parti specifiche (Formazione e Note)
-                # Formazione (selettore più probabile)
-                lineup_el = await match_box.query_selector("div.match-formazione-container") 
                 
-                # Se il selettore specifico fallisce, proviamo con un selettore più generico 
-                # che include la formazione visiva, se necessario
-                if not lineup_el:
-                    print(f"🔄 Tentativo Formazione con selettore alternativo per {match_txt}")
-                    # Questo selettore punta al contenitore immediato di Lineup e Notes
-                    match_box_content = await match_box.query_selector("div.match-box-prob-form-v2")
-                    if match_box_content:
-                        # Cerchiamo il div che contiene il campo da calcio (Lineup)
-                        lineup_el = await match_box_content.query_selector("div.col-sm-6:nth-child(1)")
-                        
-                
-                # Note/News (selettore specifico)
-                notes_el = await match_box.query_selector("div.match-box-prob-form-news-v2")
-
-
-                if not lineup_el:
-                    # Se ancora non trovato, è un problema reale di rendering del blocco
-                    print(f"🛑 Fantacalcio: Formazione NON TROVATA DOPO TUTTI I TENTATIVI per {match_txt}, salto.")
-                    continue
-                
-                # --- Screenshot Lineup (solo la formazione) ---
-                lineup_path = f"fantacalcio_{idx}_lineup.png"
-                await lineup_el.screenshot(path=lineup_path)
-                lineup_img = Image.open(lineup_path)
-                
-                # --- Screenshot Notes (solo le note) ---
-                notes_img = None
-                if notes_el:
-                    notes_path = f"fantacalcio_{idx}_notes.png"
-                    # Rimuove l'intestazione H2 della sezione News per pulizia
-                    await notes_el.evaluate("""(el) => {
-                        const title = el.querySelector('h2');
-                        if (title) title.remove();
-                    }""")
-                    await notes_el.screenshot(path=notes_path)
-                    notes_img = Image.open(notes_path)
-                    
-                # ======================================================
-                #     UNIONE IMMAGINI (PIL)
-                # ======================================================
-                
-                bianco = (255, 255, 255) 
-                base_width = lineup_img.width
-                gap = 20 
-                
-                total_height = lineup_img.height
-                if notes_img:
-                    total_height += gap + notes_img.height
-                
-                combined = Image.new("RGB", (base_width, total_height), bianco)
-                
-                y = 0
-                combined.paste(lineup_img, (0, y))
-                
-                if notes_img:
-                    y += lineup_img.height
-                    gap_block = Image.new("RGB", (base_width, gap), bianco)
-                    combined.paste(gap_block, (0, y)); y += gap
-                    
-                    if notes_img.width < base_width:
-                        x_offset = (base_width - notes_img.width) // 2
-                    else:
-                        x_offset = 0
-                        
-                    combined.paste(notes_img, (x_offset, y))
-                
-                combined = ImageOps.expand(combined, border=(20, 20, 20, 20), fill=bianco)
-
+                # Scatta lo screenshot sull'intero blocco affidabile (che ora è pulito)
                 final_filename = f"fantacalcio_{idx}.png"
                 final_path = final_filename
-                combined.save(final_path)
+                
+                # Questo è il cuore del FIX: Scatta la foto sul contenitore più grande
+                # che è stato preventivamente ripulito in JavaScript.
+                await match_box.screenshot(path=final_path)
 
                 # --- UPLOAD SU DRIVE ---
                 link = drive_upload_or_replace(final_path, final_filename)
@@ -404,20 +337,20 @@ async def estrai_screenshots_fantacalcio():
                 print(f"✅ Fantacalcio | {match_txt} → {final_filename} (Salvato su Drive) → {link}")
                 
             except Exception as e:
+                # Non dovrebbe più esserci l'errore "Formazione non trovata"
                 print(f"⚠️ Errore generico su match {idx} ({match_txt}): {e}")
             
             finally:
                 # --- Eliminazione file temporanei locali ---
-                for p in [final_path, notes_path, lineup_path]:
-                    if p and os.path.exists(p):
-                        os.remove(p)
+                if final_path and os.path.exists(final_path):
+                    os.remove(final_path)
 
 
         await context.close(); await browser.close()
 
     if rows:
+        # Questa logica di aggiornamento è presa dal tuo Colab originale
         all_vals = ws.get_all_values()
-        # Usa GIORNATA "" come placeholder
         start = next(i for i, r in enumerate(all_vals, start=1) if i > 1 and r[0] == "Fantacalcio")
         ws.update(range_name=f"A{start}:E{start+len(rows)-1}", values=rows)
         print(f"🟢 Foglio aggiornato (Fantacalcio): {len(rows)} righe.")
