@@ -241,14 +241,14 @@ async def estrai_screenshots_sosfanta():
         await browser.close()
     
 # ==========================================================
-#  FONTE 2: Fantacalcio (SOLUZIONE DEFINITIVA: Inclusione di Dettagli Specifici)
+#  FONTE 2: Fantacalcio (SOLUZIONE DEFINITIVA: 3 Screenshot Specifici + PIL)
 # ==========================================================
 import os
 from PIL import Image, ImageOps 
 
 async def estrai_screenshots_fantacalcio():
     FONTE = "Fantacalcio"
-    URL = "https://www.fantacalcio.it/probabili-formazioni-serie-a"
+    URL = "https://www.www.fantacalcio.it/probabili-formazioni-serie-a"
     rows = []
 
     # FIX VARIABILE
@@ -262,13 +262,12 @@ async def estrai_screenshots_fantacalcio():
             headless=True, 
             args=["--no-sandbox", "--disable-dev-shm-usage", "--headless=new"]
         )
-        # Timeout massimo di 30s per tutte le azioni
+        # Timeout massimo di 30s per tutte le azioni (risolve il 5000ms e massimizza l'attesa)
         context = await browser.new_context(
-            viewport={"width":1600,"height":6000}, # Aumento l'altezza del viewport per contenere i nuovi blocchi
+            viewport={"width":1600,"height":6000},
             timeout=30000 
         )
         page = await context.new_page()
-        # Tempo massimo per la navigazione
         await page.goto(URL, wait_until="domcontentloaded", timeout=30000) 
 
         # Gestione cookie/privacy
@@ -286,15 +285,12 @@ async def estrai_screenshots_fantacalcio():
             }
         """)
         
-        # 🎯 PULIZIA DOM MIRATA
-        # Rimuoviamo SOLO gli elementi ESTERNI indesiderati che non sono le sezioni richieste.
+        # Pulizia DOM di elementi non correlati ai match
         await page.evaluate("""
             () => {
                 const unwantedSelectors = [
-                    // Elementi strutturali e pubblicitari
                     'header', 'footer', '.ad-box', '.promo-box', '.social-share', 
                     '.bg-light-yellow', '.bg-dark', '.fc-page-content > h2',
-                    // Elementi all'interno del match-item che sono sempre da rimuovere
                     '.d-none.d-sm-block',
                 ];
                 unwantedSelectors.forEach(sel => {
@@ -305,16 +301,25 @@ async def estrai_screenshots_fantacalcio():
             }
         """)
         
-        # Ci affidiamo al timeout di navigazione di 30s per il caricamento.
+        # 🎯 ATTESA CRITICA: Sfruttiamo i 30s per garantire che il contenuto appaia
+        try:
+             # Aspettiamo il contenitore generale delle formazioni
+             await page.wait_for_selector('li.match.match-item', timeout=30000) 
+             print("✅ Contenuto Fantacalcio caricato dopo attesa globale.")
+        except Exception as e:
+             print(f"⚠️ ATTENZIONE: Caricamento Fantacalcio non completato: {e}. Il loop potrebbe fallire.")
+
         matches = await page.query_selector_all("li.match.match-item")
         print(f"🔎 Fantacalcio: trovate {len(matches)} partite")
 
         for idx, match_box in enumerate(matches[:MAX_MATCH], start=1):
+            lineup_path = None
+            notes_path = None
+            graphs_path = None
             final_path = None
             match_txt = f"Match {idx}"
             
             try:
-                # Scroll per forzare la visibilità nel viewport
                 await match_box.scroll_into_view_if_needed()
                 await page.wait_for_timeout(500)
                 
@@ -327,19 +332,81 @@ async def estrai_screenshots_fantacalcio():
                     if away == "HEL": away = "VER"
                     match_txt = f"{home} - {away}"
 
-                # CATTURA: Screenshot sul blocco intero (li.match.match-item)
-                # Il blocco ora include Formazioni, Note e Grafici.
+                # 🎯 CATTURA 1 & 2: Formazione e Note (Colonna 1 e 2)
+                all_cols = await match_box.query_selector_all("div.col-sm-6.col-xs-12")
+
+                lineup_el = all_cols[0] if len(all_cols) >= 1 else None
+                notes_el = all_cols[1] if len(all_cols) >= 2 else None
+
+                if not lineup_el:
+                    print(f"🛑 Fantacalcio: Formazione non trovata per {match_txt}, salto.")
+                    continue
+                
+                # Screenshot Lineup (Colonna 1)
+                lineup_path = f"fantacalcio_{idx}_lineup.png"
+                await lineup_el.screenshot(path=lineup_path) 
+                lineup_img = Image.open(lineup_path)
+                
+                # Screenshot Notes (Colonna 2)
+                notes_img = None
+                if notes_el:
+                    notes_path = f"fantacalcio_{idx}_notes.png"
+                    await notes_el.evaluate("""(el) => {
+                        const title = el.querySelector('h2');
+                        if (title) title.remove();
+                    }""")
+                    await notes_el.screenshot(path=notes_path)
+                    notes_img = Image.open(notes_path)
+                    
+                
+                # 🎯 CATTURA 3: Grafici (section.mt-4.match-graphs.burn)
+                graphs_img = None
+                graphs_el = await match_box.query_selector("section.mt-4.match-graphs.burn")
+                
+                if graphs_el:
+                    graphs_path = f"fantacalcio_{idx}_graphs.png"
+                    await graphs_el.screenshot(path=graphs_path)
+                    graphs_img = Image.open(graphs_path)
+
+
+                # ======================================================
+                #     UNIONE IMMAGINI (PIL) - Unione verticale di tutti e tre gli screenshot
+                # ======================================================
+                
+                bianco = (255, 255, 255) 
+                
+                # Se la Formazione non è la più larga, la usiamo come base
+                base_width = lineup_img.width
+                if notes_img and notes_img.width > base_width: base_width = notes_img.width
+                if graphs_img and graphs_img.width > base_width: base_width = graphs_img.width
+                
+                gap = 20 
+                
+                total_height = lineup_img.height + gap + (notes_img.height if notes_img else 0) + gap + (graphs_img.height if graphs_img else 0)
+                
+                combined = Image.new("RGB", (base_width, total_height), bianco)
+                
+                y = 0
+                
+                # 1. Formazione
+                combined.paste(lineup_img, (0, y)); y += lineup_img.height
+
+                # 2. Note
+                if notes_img:
+                    y += gap
+                    combined.paste(notes_img, (0, y)); y += notes_img.height
+                
+                # 3. Grafici
+                if graphs_img:
+                    y += gap
+                    combined.paste(graphs_img, (0, y)); 
+                
+                combined = ImageOps.expand(combined, border=(20, 20, 20, 20), fill=bianco)
+
                 final_filename = f"fantacalcio_{idx}.png"
                 final_path = final_filename
-                
-                await match_box.screenshot(path=final_path)
-                
-                # --- BORDO BIANCO (Operazione PIL) ---
-                img = Image.open(final_path)
-                bianco = (255, 255, 255)
-                img = ImageOps.expand(img, border=(20, 20, 20, 20), fill=bianco)
-                img.save(final_path)
-                
+                combined.save(final_path)
+
                 # --- UPLOAD SU DRIVE ---
                 link = drive_upload_or_replace(final_path, final_filename)
                 
@@ -351,8 +418,10 @@ async def estrai_screenshots_fantacalcio():
             
             finally:
                 # --- Eliminazione file temporanei locali ---
-                if final_path and os.path.exists(final_path):
-                    os.remove(final_path)
+                for p in [final_path, notes_path, lineup_path, graphs_path]:
+                    if p and os.path.exists(p):
+                        os.remove(p)
+
 
         await context.close(); await browser.close()
 
