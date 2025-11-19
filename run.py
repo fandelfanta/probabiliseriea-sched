@@ -241,7 +241,7 @@ async def estrai_screenshots_sosfanta():
         await browser.close()
     
 # ==========================================================
-#  FONTE 2: Fantacalcio (FIX FINALE: Selettori per Indice e Robustezza)
+#  FONTE 2: Fantacalcio (REPLICA COlab: FIX TEMPISTICA E SELEZIONE PER INDICE)
 # ==========================================================
 import os
 from PIL import Image, ImageOps 
@@ -275,7 +275,7 @@ async def estrai_screenshots_fantacalcio():
             }
         """)
         
-        # PASSO AGGIUNTIVO: Rimuove le sezioni indesiderate (per pulizia globale, anche se dovremmo usare l'unione)
+        # Pulizia globale DOM (Necessaria per escludere elementi ingombranti)
         await page.evaluate("""
             () => {
                 const unwantedSelectors = [
@@ -292,12 +292,16 @@ async def estrai_screenshots_fantacalcio():
                 });
             }
         """)
-
-        # Attende il caricamento dei contenitori principali delle partite
+        
+        # 🎯 PASSAGGIO CRUCIALE: Attesa Globale del Contenuto Dinamico
+        # Aspetta che un elemento strutturale (le colonne) sia visibile a livello di pagina.
+        # Questo è il FIX per il "Timeout 5000ms exceeded"
         try:
-            await page.wait_for_selector('li.match.match-item', timeout=15000)
+             await page.wait_for_selector('div.col-sm-6.col-xs-12', timeout=20000) # Attesa estesa a 20 secondi
+             print("✅ Contenuto Fantacalcio caricato dopo attesa globale.")
         except:
-             print("⚠️ Avviso: I blocchi partita non si sono caricati in tempo.")
+             # Se non carica, si prosegue, ma l'errore verrà gestito nel loop.
+             print("⚠️ ATTENZIONE: Caricamento Fantacalcio non completato entro 20 secondi.")
         
         matches = await page.query_selector_all("li.match.match-item")
         print(f"🔎 Fantacalcio: trovate {len(matches)} partite")
@@ -309,6 +313,7 @@ async def estrai_screenshots_fantacalcio():
             match_txt = f"Match {idx}"
             
             try:
+                # Scroll per forzare la visibilità nel viewport
                 await match_box.scroll_into_view_if_needed()
                 await page.wait_for_timeout(700)
                 
@@ -321,31 +326,23 @@ async def estrai_screenshots_fantacalcio():
                     if away == "HEL": away = "VER"
                     match_txt = f"{home} - {away}"
 
-                # 1. NUOVO FIX: SELEZIONE DELLE COLONNE PER INDICE (ROBUSTEZZA)
-                
-                # Attende che i contenitori generici delle colonne siano carichi
-                await match_box.wait_for_selector("div.col-sm-6.col-xs-12", timeout=5000)
-                
-                # Seleziona tutte le colonne all'interno della partita
+                # SELEZIONE ROBUSTA (per indice, per evitare il fallimento delle classi specifiche)
                 all_cols = await match_box.query_selector_all("div.col-sm-6.col-xs-12")
 
-                # Assegna i blocchi basandosi sulla loro posizione (sempre Formazione, poi Note)
                 lineup_el = all_cols[0] if len(all_cols) >= 1 else None
                 notes_el = all_cols[1] if len(all_cols) >= 2 else None
 
 
                 if not lineup_el:
-                    # Questo errore si verifica solo se non trova nemmeno la prima colonna generica, 
-                    # il che significa che il contenuto non è proprio caricato.
-                    print(f"🛑 Fantacalcio: Formazione non trovata (Manca la colonna principale) per {match_txt}, salto.")
+                    print(f"🛑 Fantacalcio: Formazione non trovata (Colonna non visualizzata) per {match_txt}, salto.")
                     continue
                 
-                # --- Screenshot Lineup ---
+                # --- Screenshot Lineup (solo la colonna 1) ---
                 lineup_path = f"fantacalcio_{idx}_lineup.png"
                 await lineup_el.screenshot(path=lineup_path)
                 lineup_img = Image.open(lineup_path)
                 
-                # --- Screenshot Notes ---
+                # --- Screenshot Notes (solo la colonna 2) ---
                 notes_img = None
                 if notes_el:
                     notes_path = f"fantacalcio_{idx}_notes.png"
@@ -358,7 +355,7 @@ async def estrai_screenshots_fantacalcio():
                     notes_img = Image.open(notes_path)
                     
                 # ======================================================
-                #     UNIONE IMMAGINI (PIL)
+                #     UNIONE IMMAGINI (PIL) - Essenziale per output pulito
                 # ======================================================
                 
                 bianco = (255, 255, 255) 
@@ -395,7 +392,7 @@ async def estrai_screenshots_fantacalcio():
                 # --- UPLOAD SU DRIVE ---
                 link = drive_upload_or_replace(final_path, final_filename)
                 
-                # FIX GIORNATA: Inserita una stringa vuota ""
+                # FIX GIORNATA (stringa vuota)
                 rows.append([FONTE, "", idx, match_txt, link]) 
                 print(f"✅ Fantacalcio | {match_txt} → {final_filename} (Salvato su Drive) → {link}")
                 
