@@ -241,8 +241,10 @@ async def estrai_screenshots_sosfanta():
         await browser.close()
     
 # ==========================================================
-#  FONTE 2: Fantacalcio (VERSIONE IDENTICA AL COLAB)
+#  FONTE 2: Fantacalcio (BLOCCO FORMAZIONI + GRAFICI)
 # ==========================================================
+from PIL import Image
+
 async def estrai_screenshots_fantacalcio():
     FONTE = "Fantacalcio"
     URL = "https://www.fantacalcio.it/probabili-formazioni-serie-a"
@@ -253,43 +255,30 @@ async def estrai_screenshots_fantacalcio():
             args=["--no-sandbox", "--disable-dev-shm-usage", "--headless=new"]
         )
 
-        # viewport grande per permettere al DOM di caricarsi come in Colab
-        context = await browser.new_context(viewport={"width":1600,"height":4000})
+        context = await browser.new_context(viewport={"width":1600, "height":4000})
         page = await context.new_page()
 
-        # --- Caricamento pagina ---
+        # Caricamento pagina
         await page.goto(URL, wait_until="domcontentloaded", timeout=60000)
-        await page.wait_for_timeout(1200)
+        await page.wait_for_timeout(1500)
 
-        # ======================================================
-        # 🔥 CHIUSURA POPUP CMP (Quantcast, FundingChoices, ecc.)
-        #   → Versione IDENTICA allo script Colab
-        # ======================================================
-        try:
-            await page.wait_for_selector(
-                "button:has-text('OK'), button:has-text('Continue'), button[mode='primary']",
-                timeout=5000
-            )
-            for sel in [
-                "button:has-text('OK')",
-                "button:has-text('Ok')",
-                "button:has-text('OK, I AGREE')",
-                "button:has-text('CONTINUE')",
-                "button:has-text('Continue')",
-                "button[mode='primary']"
-            ]:
-                try:
-                    await page.locator(sel).click(timeout=800)
-                    await page.wait_for_timeout(400)
-                    break
-                except:
-                    pass
-        except:
-            pass
+        # Chiudi CMP
+        for sel in [
+            "button:has-text('OK')",
+            "button:has-text('Ok')",
+            "button:has-text('OK, I AGREE')",
+            "button:has-text('CONTINUE')",
+            "button:has-text('Continue')",
+            "button[mode='primary']"
+        ]:
+            try:
+                await page.locator(sel).click(timeout=800)
+                await page.wait_for_timeout(400)
+                break
+            except:
+                pass
 
-        # ======================================================
-        # 🧹 RIMOZIONE OVERLAY / POPUP ACCESSORI (come Colab)
-        # ======================================================
+        # Rimuovi dialoghi
         await page.evaluate("""
             () => {
                 document.documentElement.style.overflow='auto';
@@ -298,52 +287,55 @@ async def estrai_screenshots_fantacalcio():
             }
         """)
 
-        # elenco partite (identico a Colab)
         matches = await page.query_selector_all("li.match.match-item")
         print(f"🔎 Fantacalcio: trovate {len(matches)} partite")
 
         for idx, match in enumerate(matches[:MAX_MATCH], start=1):
-
             try:
-                # scroll come Colab
                 await match.scroll_into_view_if_needed()
-                await page.wait_for_timeout(700)
+                await page.wait_for_timeout(600)
 
-                # nomi squadra
-                team_names = await match.query_selector_all("h3.h6.team-name")
-                if len(team_names) >= 2:
-                    home = (await team_names[0].inner_text()).strip()[:3].upper()
-                    away = (await team_names[1].inner_text()).strip()[:3].upper()
-                    if home == "HEL": home = "VER"
-                    if away == "HEL": away = "VER"
-                    match_txt = f"{home} - {away}"
-                else:
-                    match_txt = f"Match {idx}"
-
-                # ============================================
-                # 🎯 CATTURA SOLO SEZIONE FORMAZIONI — COME COLAB
-                # ============================================
-                target = await match.query_selector("div.match-container-info")
-
-                if not target:
-                    print(f"⚠️ Contenitore formazioni NON trovato per {match_txt}, salto.")
+                # --- SELETTORE 1: BLOCCO FORMAZIONI ---
+                block_form = await match.query_selector("div.row.col-sm")
+                if not block_form:
+                    print(f"⚠️ Formazioni non trovate per match {idx}")
                     continue
 
+                tmp1 = f"tmp_fanta_form_{idx}.png"
+                await block_form.screenshot(path=tmp1)
+
+                # --- SELETTORE 2: GRAFICI ---
+                block_graphs = await match.query_selector("section.mt-4.match-graphs.burn")
+                if not block_graphs:
+                    print(f"⚠️ Grafici non trovati per match {idx}")
+                    continue
+
+                tmp2 = f"tmp_fanta_graph_{idx}.png"
+                await block_graphs.screenshot(path=tmp2)
+
+                # --- UNISCI LE DUE IMMAGINI ---
+                img1 = Image.open(tmp1)
+                img2 = Image.open(tmp2)
+
+                width = max(img1.width, img2.width)
+                height = img1.height + img2.height
+
+                final = Image.new("RGB", (width, height), (255, 255, 255))
+                final.paste(img1, (0, 0))
+                final.paste(img2, (0, img1.height))
+
                 filename = f"fantacalcio_{idx}.png"
+                final.save(filename)
 
-                # screenshot della sezione (identico al Colab)
-                await target.screenshot(path=filename)
-
-                # upload invariato
+                # upload su Drive
                 link = drive_upload_or_replace(filename, filename)
-                print(f"✅ Fantacalcio | {match_txt} → {filename} → {link}")
+                print(f"✅ Fantacalcio | Partita {idx} → {filename} → {link}")
 
             except Exception as e:
                 print(f"⚠️ Errore su match {idx}: {e}")
 
         await context.close()
         await browser.close()
-
 
 
 # ==========================================================
