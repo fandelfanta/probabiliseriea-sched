@@ -295,7 +295,7 @@ async def estrai_screenshots_fantacalcio():
         print(f"🔎 Fantacalcio: trovate {len(matches)} partite")
 
         # Colore blu dello sfondo del sito (RGB)
-        BG = (37, 40, 54)   # #252836
+        BG = (30, 34, 51)   # #1e2233
 
         def expand_to_width(img, target_width):
             """Aggiunge sfondo blu laterale per centrare l'immagine."""
