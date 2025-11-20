@@ -244,6 +244,7 @@ async def estrai_screenshots_sosfanta():
 #  FONTE 2: Fantacalcio (BLOCCO FORMAZIONI + GRAFICI)
 # ==========================================================
 from PIL import Image
+import asyncio
 
 async def estrai_screenshots_fantacalcio():
     FONTE = "Fantacalcio"
@@ -258,11 +259,13 @@ async def estrai_screenshots_fantacalcio():
         context = await browser.new_context(viewport={"width":1600, "height":4000})
         page = await context.new_page()
 
-        # Caricamento pagina
+        # --- Caricamento pagina ---
         await page.goto(URL, wait_until="domcontentloaded", timeout=60000)
         await page.wait_for_timeout(1500)
 
-        # Chiudi CMP
+        # ======================================================
+        # 🔥 CHIUSURA POPUP CMP
+        # ======================================================
         for sel in [
             "button:has-text('OK')",
             "button:has-text('Ok')",
@@ -278,7 +281,7 @@ async def estrai_screenshots_fantacalcio():
             except:
                 pass
 
-        # Rimuovi dialoghi
+        # Rimuovi overlay vari
         await page.evaluate("""
             () => {
                 document.documentElement.style.overflow='auto';
@@ -287,42 +290,68 @@ async def estrai_screenshots_fantacalcio():
             }
         """)
 
+        # Lista match nel DOM
         matches = await page.query_selector_all("li.match.match-item")
         print(f"🔎 Fantacalcio: trovate {len(matches)} partite")
 
+        # Colore blu dello sfondo del sito (RGB)
+        BG = (37, 40, 54)   # #252836
+
+        def expand_to_width(img, target_width):
+            """Aggiunge sfondo blu laterale per centrare l'immagine."""
+            if img.width == target_width:
+                return img
+
+            new_img = Image.new("RGB", (target_width, img.height), BG)
+            offset = (target_width - img.width) // 2
+            new_img.paste(img, (offset, 0))
+            return new_img
+
+        # Elaborazione match
         for idx, match in enumerate(matches[:MAX_MATCH], start=1):
             try:
                 await match.scroll_into_view_if_needed()
                 await page.wait_for_timeout(600)
 
-                # --- SELETTORE 1: BLOCCO FORMAZIONI ---
+                # ============================
+                # 🎯 SELETTORE 1: FORMAZIONI
+                # ============================
                 block_form = await match.query_selector("div.row.col-sm")
                 if not block_form:
-                    print(f"⚠️ Formazioni non trovate per match {idx}")
+                    print(f"⚠️ Formazioni NON trovate per match {idx}")
                     continue
 
                 tmp1 = f"tmp_fanta_form_{idx}.png"
                 await block_form.screenshot(path=tmp1)
 
-                # --- SELETTORE 2: GRAFICI ---
+                # ============================
+                # 🎯 SELETTORE 2: GRAFICI
+                # ============================
                 block_graphs = await match.query_selector("section.mt-4.match-graphs.burn")
                 if not block_graphs:
-                    print(f"⚠️ Grafici non trovati per match {idx}")
+                    print(f"⚠️ Grafici NON trovati per match {idx}")
                     continue
 
                 tmp2 = f"tmp_fanta_graph_{idx}.png"
                 await block_graphs.screenshot(path=tmp2)
 
-                # --- UNISCI LE DUE IMMAGINI ---
+                # ============================
+                # 🖼️ UNIONE IMMAGINI
+                # ============================
                 img1 = Image.open(tmp1)
                 img2 = Image.open(tmp2)
 
-                width = max(img1.width, img2.width)
-                height = img1.height + img2.height
+                # larghezza finale uniforme
+                target_width = max(img1.width, img2.width)
 
-                final = Image.new("RGB", (width, height), (255, 255, 255))
-                final.paste(img1, (0, 0))
-                final.paste(img2, (0, img1.height))
+                img1_fixed = expand_to_width(img1, target_width)
+                img2_fixed = expand_to_width(img2, target_width)
+
+                final_height = img1_fixed.height + img2_fixed.height
+                final = Image.new("RGB", (target_width, final_height), BG)
+
+                final.paste(img1_fixed, (0, 0))
+                final.paste(img2_fixed, (0, img1_fixed.height))
 
                 filename = f"fantacalcio_{idx}.png"
                 final.save(filename)
